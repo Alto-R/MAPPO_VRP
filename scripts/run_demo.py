@@ -298,7 +298,7 @@ def main():
     parser.add_argument('--num_drones', type=int, default=5)
     parser.add_argument('--num_customers', type=int, default=15)
     parser.add_argument('--num_route_nodes', type=int, default=5)
-    parser.add_argument('--episode_length', type=int, default=10000)
+    parser.add_argument('--episode_length', type=int, default=100000)
     parser.add_argument('--delivery_threshold', type=float, default=0.05)
     parser.add_argument('--recovery_threshold', type=float, default=0.1)
     parser.add_argument('--seed', type=int, default=42)
