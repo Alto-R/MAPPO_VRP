@@ -1,0 +1,525 @@
+{
+  "config": {
+    "num_drones": 2,
+    "num_customers": 3,
+    "num_route_nodes": 5,
+    "episode_length": 10000
+  },
+  "route_nodes": [
+    {
+      "x": 0.6,
+      "y": 0.0
+    },
+    {
+      "x": 0.18541019662496847,
+      "y": 0.570633909777092
+    },
+    {
+      "x": -0.48541019662496837,
+      "y": 0.35267115137548394
+    },
+    {
+      "x": -0.4854101966249684,
+      "y": -0.3526711513754838
+    },
+    {
+      "x": 0.18541019662496833,
+      "y": -0.5706339097770922
+    }
+  ],
+  "timesteps": [
+    {
+      "step": 0,
+      "truck": {
+        "x": 0.0,
+        "y": 0.0,
+        "vel_x": 0.0,
+        "vel_y": 0.0
+      },
+      "drones": [
+        {
+          "id": 0,
+          "x": 0.0,
+          "y": 0.0,
+          "battery": 1.0,
+          "status": "onboard",
+          "carrying_package": null
+        },
+        {
+          "id": 1,
+          "x": 0.0,
+          "y": 0.0,
+          "battery": 1.0,
+          "status": "onboard",
+          "carrying_package": null
+        }
+      ],
+      "customers_served": [],
+      "actions": [
+        6,
+        0,
+        0
+      ],
+      "reward": -0.10001
+    },
+    {
+      "step": 1,
+      "truck": {
+        "x": 0.0,
+        "y": 0.0,
+        "vel_x": 0.0,
+        "vel_y": 0.0
+      },
+      "drones": [
+        {
+          "id": 0,
+          "x": 0.0,
+          "y": 0.0,
+          "battery": 0.999,
+          "status": "flying",
+          "carrying_package": null
+        },
+        {
+          "id": 1,
+          "x": 0.0,
+          "y": 0.0,
+          "battery": 1.0,
+          "status": "onboard",
+          "carrying_package": null
+        }
+      ],
+      "customers_served": [],
+      "actions": [
+        7,
+        3,
+        0
+      ],
+      "reward": -0.10003000000000001
+    },
+    {
+      "step": 2,
+      "truck": {
+        "x": 0.0,
+        "y": 0.0,
+        "vel_x": 0.0,
+        "vel_y": 0.0
+      },
+      "drones": [
+        {
+          "id": 0,
+          "x": 0.044182269017162525,
+          "y": -0.19505877858864767,
+          "battery": 0.997,
+          "status": "flying",
+          "carrying_package": 1
+        },
+        {
+          "id": 1,
+          "x": 0.0,
+          "y": 0.0,
+          "battery": 0.999,
+          "status": "flying",
+          "carrying_package": null
+        }
+      ],
+      "customers_served": [],
+      "actions": [
+        9,
+        3,
+        2
+      ],
+      "reward": -0.10002000000000001
+    },
+    {
+      "step": 3,
+      "truck": {
+        "x": 0.0,
+        "y": 0.0,
+        "vel_x": 0.0,
+        "vel_y": 0.0
+      },
+      "drones": [
+        {
+          "id": 0,
+          "x": 0.08836453803432506,
+          "y": -0.39011755717729535,
+          "battery": 0.995,
+          "status": "flying",
+          "carrying_package": 1
+        },
+        {
+          "id": 1,
+          "x": 0.0,
+          "y": 0.0,
+          "battery": 1.0,
+          "status": "onboard",
+          "carrying_package": null
+        }
+      ],
+      "customers_served": [],
+      "actions": [
+        7,
+        3,
+        0
+      ],
+      "reward": -0.10003000000000001
+    },
+    {
+      "step": 4,
+      "truck": {
+        "x": 0.0,
+        "y": 0.0,
+        "vel_x": 0.0,
+        "vel_y": 0.0
+      },
+      "drones": [
+        {
+          "id": 0,
+          "x": 0.13254680705148758,
+          "y": -0.5851763357659431,
+          "battery": 0.993,
+          "status": "flying",
+          "carrying_package": 1
+        },
+        {
+          "id": 1,
+          "x": 0.0,
+          "y": 0.0,
+          "battery": 0.999,
+          "status": "flying",
+          "carrying_package": null
+        }
+      ],
+      "customers_served": [],
+      "actions": [
+        9,
+        3,
+        2
+      ],
+      "reward": 4.89998
+    },
+    {
+      "step": 5,
+      "truck": {
+        "x": 0.0,
+        "y": 0.0,
+        "vel_x": 0.0,
+        "vel_y": 0.0
+      },
+      "drones": [
+        {
+          "id": 0,
+          "x": 0.1767290760686501,
+          "y": -0.7802351143545907,
+          "battery": 0.991,
+          "status": "flying",
+          "carrying_package": null
+        },
+        {
+          "id": 1,
+          "x": 0.0,
+          "y": 0.0,
+          "battery": 1.0,
+          "status": "onboard",
+          "carrying_package": null
+        }
+      ],
+      "customers_served": [
+        1
+      ],
+      "actions": [
+        7,
+        4,
+        0
+      ],
+      "reward": -0.10003000000000001
+    },
+    {
+      "step": 6,
+      "truck": {
+        "x": 0.0,
+        "y": 0.0,
+        "vel_x": 0.0,
+        "vel_y": 0.0
+      },
+      "drones": [
+        {
+          "id": 0,
+          "x": -0.02066795351559436,
+          "y": -0.7480728272574807,
+          "battery": 0.989,
+          "status": "flying",
+          "carrying_package": 2
+        },
+        {
+          "id": 1,
+          "x": 0.0,
+          "y": 0.0,
+          "battery": 0.999,
+          "status": "flying",
+          "carrying_package": null
+        }
+      ],
+      "customers_served": [
+        1
+      ],
+      "actions": [
+        9,
+        4,
+        2
+      ],
+      "reward": 4.899985860527686
+    },
+    {
+      "step": 7,
+      "truck": {
+        "x": 0.0,
+        "y": 0.0,
+        "vel_x": 0.0,
+        "vel_y": 0.0
+      },
+      "drones": [
+        {
+          "id": 0,
+          "x": -0.16022244525559126,
+          "y": -0.7253349388582153,
+          "battery": 0.9875860527685353,
+          "status": "flying",
+          "carrying_package": null
+        },
+        {
+          "id": 1,
+          "x": 0.0,
+          "y": 0.0,
+          "battery": 1.0,
+          "status": "onboard",
+          "carrying_package": null
+        }
+      ],
+      "customers_served": [
+        1,
+        2
+      ],
+      "actions": [
+        7,
+        2,
+        0
+      ],
+      "reward": -0.10003000000000001
+    },
+    {
+      "step": 8,
+      "truck": {
+        "x": 0.0,
+        "y": 0.0,
+        "vel_x": 0.0,
+        "vel_y": 0.0
+      },
+      "drones": [
+        {
+          "id": 0,
+          "x": 0.039055880583841684,
+          "y": -0.7423098865940053,
+          "battery": 0.9855860527685353,
+          "status": "flying",
+          "carrying_package": 0
+        },
+        {
+          "id": 1,
+          "x": 0.0,
+          "y": 0.0,
+          "battery": 0.999,
+          "status": "flying",
+          "carrying_package": null
+        }
+      ],
+      "customers_served": [
+        1,
+        2
+      ],
+      "actions": [
+        3,
+        2,
+        2
+      ],
+      "reward": -0.10004000000000002
+    },
+    {
+      "step": 9,
+      "truck": {
+        "x": -0.08090169943749474,
+        "y": 0.05877852522924733,
+        "vel_x": -0.8090169943749473,
+        "vel_y": 0.5877852522924732
+      },
+      "drones": [
+        {
+          "id": 0,
+          "x": 0.2383342064232746,
+          "y": -0.7592848343297953,
+          "battery": 0.9835860527685353,
+          "status": "flying",
+          "carrying_package": 0
+        },
+        {
+          "id": 1,
+          "x": 0.13199628011096912,
+          "y": -0.15025638767409055,
+          "battery": 0.997,
+          "status": "flying",
+          "carrying_package": 0
+        }
+      ],
+      "customers_served": [
+        1,
+        2
+      ],
+      "actions": [
+        3,
+        2,
+        2
+      ],
+      "reward": -0.10004000000000002
+    },
+    {
+      "step": 10,
+      "truck": {
+        "x": -0.16180339887498948,
+        "y": 0.11755705045849467,
+        "vel_x": -0.8090169943749473,
+        "vel_y": 0.5877852522924734
+      },
+      "drones": [
+        {
+          "id": 0,
+          "x": 0.4376125322627075,
+          "y": -0.7762597820655853,
+          "battery": 0.9815860527685353,
+          "status": "flying",
+          "carrying_package": 0
+        },
+        {
+          "id": 1,
+          "x": 0.26399256022193823,
+          "y": -0.3005127753481811,
+          "battery": 0.995,
+          "status": "flying",
+          "carrying_package": 0
+        }
+      ],
+      "customers_served": [
+        1,
+        2
+      ],
+      "actions": [
+        3,
+        2,
+        2
+      ],
+      "reward": -0.10004000000000002
+    },
+    {
+      "step": 11,
+      "truck": {
+        "x": -0.2427050983124842,
+        "y": 0.176335575687742,
+        "vel_x": -0.8090169943749473,
+        "vel_y": 0.5877852522924731
+      },
+      "drones": [
+        {
+          "id": 0,
+          "x": 0.6368908581021404,
+          "y": -0.7932347298013754,
+          "battery": 0.9795860527685353,
+          "status": "flying",
+          "carrying_package": 0
+        },
+        {
+          "id": 1,
+          "x": 0.3959888403329074,
+          "y": -0.45076916302227166,
+          "battery": 0.993,
+          "status": "flying",
+          "carrying_package": 0
+        }
+      ],
+      "customers_served": [
+        1,
+        2
+      ],
+      "actions": [
+        3,
+        2,
+        2
+      ],
+      "reward": 104.89997349718782
+    },
+    {
+      "step": 12,
+      "truck": {
+        "x": -0.32360679774997897,
+        "y": 0.2351141009169893,
+        "vel_x": -0.8090169943749473,
+        "vel_y": 0.5877852522924732
+      },
+      "drones": [
+        {
+          "id": 0,
+          "x": 0.7016843344252004,
+          "y": -0.7987539746543771,
+          "battery": 0.9789357715495404,
+          "status": "flying",
+          "carrying_package": null
+        },
+        {
+          "id": 1,
+          "x": 0.5279851204438766,
+          "y": -0.6010255506963622,
+          "battery": 0.991,
+          "status": "flying",
+          "carrying_package": 0
+        }
+      ],
+      "customers_served": [
+        0,
+        1,
+        2
+      ],
+      "actions": [],
+      "reward": 0.0
+    }
+  ],
+  "customers": [
+    {
+      "id": 0,
+      "x": 0.7016843344252004,
+      "y": -0.7987539746543771,
+      "time_window_start": 1184,
+      "time_window_end": 9072,
+      "demand": 0.9961057796456088
+    },
+    {
+      "id": 1,
+      "x": 0.17864505678124942,
+      "y": -0.7886939116484522,
+      "time_window_start": 474,
+      "time_window_end": 4889,
+      "demand": 0.5115312125207079
+    },
+    {
+      "id": 2,
+      "x": -0.16022244525559126,
+      "y": -0.7253349388582153,
+      "time_window_start": 1806,
+      "time_window_end": 5328,
+      "demand": 0.9868777594207296
+    }
+  ],
+  "summary": {
+    "total_steps": 12,
+    "total_reward": 113.7996693577155,
+    "customers_served": 3,
+    "total_customers": 3
+  }
+}

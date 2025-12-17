@@ -59,9 +59,9 @@ def parse_args(args, parser):
                         help="Scenario name (truck_drone_basic)")
 
     # VRP configuration
-    parser.add_argument('--num_drones', type=int, default=2,
+    parser.add_argument('--num_drones', type=int, default=5,
                         help="Number of drones")
-    parser.add_argument('--num_customers', type=int, default=3,
+    parser.add_argument('--num_customers', type=int, default=15,
                         help="Number of customers to serve")
     parser.add_argument('--num_route_nodes', type=int, default=5,
                         help="Number of route nodes for truck")

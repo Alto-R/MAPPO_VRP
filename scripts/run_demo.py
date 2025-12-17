@@ -295,8 +295,8 @@ def find_latest_model_dir(scenario_name='truck_drone_basic', algorithm='mappo', 
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument('--scenario_name', type=str, default='truck_drone_basic')
-    parser.add_argument('--num_drones', type=int, default=2)
-    parser.add_argument('--num_customers', type=int, default=3)
+    parser.add_argument('--num_drones', type=int, default=5)
+    parser.add_argument('--num_customers', type=int, default=15)
     parser.add_argument('--num_route_nodes', type=int, default=5)
     parser.add_argument('--episode_length', type=int, default=10000)
     parser.add_argument('--delivery_threshold', type=float, default=0.05)
