@@ -66,10 +66,18 @@ desktop.ini
 
 # Data files (if large)
 *.csv
-*.json
 *.pkl
 *.pickle
-!package.json
+
+# Large map/geo data files
+*.osm
+*.osm.pbf
+*.geojson
+data/*.pbf
+
+# GraphHopper cache
+tools/graphhopper/graph-cache/
+*.jar
 
 # Coverage
 .coverage

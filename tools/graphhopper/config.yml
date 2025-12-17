@@ -1,0 +1,65 @@
+# GraphHopper Configuration for Urban Express Delivery (Small Truck)
+# GraphHopper 10.x 配置文件 - 城市快递小卡车场景
+
+graphhopper:
+  # OSM 数据文件路径
+  datareader.file: ../../data/guangdong-251216.osm.pbf
+
+  # 图数据缓存目录
+  graph.location: graph-cache
+
+  ##### Routing Profiles ####
+  profiles:
+    # 小型货车配置 - 使用内置 truck 模型，适合城市快递配送
+    - name: truck
+      custom_model_files: [truck.json]
+
+    # 标准汽车配置 - 备用
+    - name: car
+      custom_model_files: [car.json]
+
+  # Speed mode (CH) - 加速路由查询
+  profiles_ch:
+    - profile: truck
+    - profile: car
+
+  # Hybrid mode (LM) - 可选
+  profiles_lm: []
+
+  #### Encoded Values ####
+  # 为小卡车配送添加必要的编码值
+  graph.encoded_values: car_access, car_average_speed, road_class, roundabout, max_speed, toll, max_weight, max_height, max_width, surface, road_environment, road_access, hgv
+
+  #### Subnetworks ####
+  prepare.min_network_size: 200
+  prepare.subnetworks.threads: 1
+
+  #### Routing ####
+  routing.non_ch.max_waypoint_distance: 1000000
+
+  #### Storage ####
+  # 排除步行/自行车道路，加快导入速度
+  import.osm.ignored_highways: footway,cycleway,path,pedestrian,steps,bridleway
+
+  # 内存映射模式 (适合大地图)
+  graph.dataaccess.default_type: MMAP
+
+# Dropwizard server configuration
+server:
+  application_connectors:
+    - type: http
+      port: 8989
+      bind_host: localhost
+      max_request_header_size: 50k
+  request_log:
+    appenders: []
+  admin_connectors:
+    - type: http
+      port: 8990
+      bind_host: localhost
+
+logging:
+  appenders:
+    - type: console
+      time_zone: UTC
+      log_format: "%d{yyyy-MM-dd HH:mm:ss.SSS} [%thread] %-5level %logger{36} - %msg%n"
