@@ -18,6 +18,7 @@ class TruckState(EntityState):
     def __init__(self):
         super().__init__()
         self.current_node = None  # Current node index in route graph
+        self.target_node = None   # Target node index (persistent until reached or changed)
 
 
 class DroneState(EntityState):

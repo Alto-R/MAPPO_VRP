@@ -251,8 +251,7 @@ class MultiAgentVRPEnv(gym.Env):
                     agent.action.target_customer = customer_idx
 
         else:  # Truck
-            # Reset action
-            agent.action.move_target = None
+            # Reset per-step actions (release/recover are one-shot)
             agent.action.release_drone = None
             agent.action.recover_drone = None
 
@@ -260,14 +259,18 @@ class MultiAgentVRPEnv(gym.Env):
             num_drones = len(self.world.drones)
 
             if action == 0:  # STAY
-                pass  # No movement
+                # Clear target - stop moving
+                agent.state.target_node = None
             elif action < 1 + num_nodes:  # MOVE_TO_NODE_X
+                # Set new target node (persistent until reached or changed)
                 node_idx = action - 1
-                agent.action.move_target = self.world.route_nodes[node_idx]
+                agent.state.target_node = node_idx
             elif action < 1 + num_nodes + num_drones:  # RELEASE_DRONE_X
+                # Release drone - doesn't affect movement
                 drone_idx = action - 1 - num_nodes
                 agent.action.release_drone = drone_idx
             else:  # RECOVER_DRONE_X
+                # Recover drone - doesn't affect movement
                 drone_idx = action - 1 - num_nodes - num_drones
                 agent.action.recover_drone = drone_idx
 
@@ -398,14 +401,16 @@ class MultiAgentVRPEnv(gym.Env):
                     drone.state.battery = min(1.0, drone.state.battery + 0.2)
 
     def _update_truck_state(self):
-        """Update truck position."""
+        """Update truck position. Uses persistent target_node."""
         truck = self.world.truck
 
-        if truck.action.move_target is None:
+        # No target - stay in place
+        if truck.state.target_node is None:
             truck.state.p_vel = np.zeros(self.world.dim_p)
             return
 
-        target = truck.action.move_target
+        # Get target position from target_node
+        target = self.world.route_nodes[truck.state.target_node]
         direction = target - truck.state.p_pos
         distance = np.linalg.norm(direction)
 
@@ -422,7 +427,17 @@ class MultiAgentVRPEnv(gym.Env):
             for drone in self.world.drones:
                 if drone.state.status == 'onboard':
                     drone.state.p_pos = truck.state.p_pos.copy()
+
+            # Check if arrived at target node
+            new_distance = np.linalg.norm(target - truck.state.p_pos)
+            if new_distance < 1e-6:
+                # Arrived at target node
+                truck.state.current_node = truck.state.target_node
+                truck.state.target_node = None  # Clear target, wait for new command
         else:
+            # Already at target
+            truck.state.current_node = truck.state.target_node
+            truck.state.target_node = None
             truck.state.p_vel = np.zeros(self.world.dim_p)
 
     def _check_deliveries(self):

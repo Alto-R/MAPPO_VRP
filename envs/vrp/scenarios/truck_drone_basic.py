@@ -89,7 +89,7 @@ class Scenario:
         world.truck.state.p_pos = np.array([0.0, 0.0])
         world.truck.state.p_vel = np.zeros(world.dim_p)
         world.truck.state.current_node = 0
-        world.truck.action.move_target = None
+        world.truck.state.target_node = None  # Persistent target node
         world.truck.action.release_drone = None
         world.truck.action.recover_drone = None
         world.truck.distance_traveled_this_step = 0.0
@@ -291,8 +291,11 @@ class Scenario:
                     if c.state.served:
                         mask[2 + i] = 0
 
-                # If carrying package, disable other customers
+                # If carrying package, must deliver to target customer before returning
                 if agent.state.carrying_package is not None:
+                    # Disable RETURN action - must complete delivery first
+                    mask[1] = 0
+                    # Disable other customers - can only deliver to target
                     for i in range(len(world.customers)):
                         if i != agent.state.carrying_package:
                             mask[2 + i] = 0
