@@ -183,6 +183,25 @@ def get_config():
     parser.add_argument("--use_obs_instead_of_state", action='store_true',
                         default=False, help="Whether to use global state or concatenated obs")
 
+    # GraphHopper distance calculation parameters
+    parser.add_argument("--use_graphhopper", action='store_true', default=False,
+                        help="Use GraphHopper for truck road distance calculation (default: False, use L2)")
+    parser.add_argument("--graphhopper_url", type=str, default='http://localhost:8989',
+                        help="GraphHopper service URL")
+    parser.add_argument("--geo_bounds", type=str, default=None,
+                        help="Geographic bounds for coordinate conversion: 'min_lon,max_lon,min_lat,max_lat'")
+
+    # Shenzhen delivery scenario parameters
+    parser.add_argument("--geojson_path", type=str,
+                        default='data/poi_batch_1_final_[7480]_combined_5.0km.geojson',
+                        help="Path to GeoJSON file containing POI data")
+    parser.add_argument("--depot_index", type=int, default=3,
+                        help="Index of express point to use as depot (default: 3 = 顺丰速运福田)")
+    parser.add_argument("--customer_radius_km", type=float, default=5.0,
+                        help="Radius in km for customer selection around depot")
+    parser.add_argument("--road_radius_km", type=float, default=10.0,
+                        help="Radius in km for road network generation around depot")
+
     # replay buffer parameters
     parser.add_argument("--episode_length", type=int,
                         default=200, help="Max length for any episode")
