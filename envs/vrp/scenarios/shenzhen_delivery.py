@@ -49,7 +49,7 @@ class Scenario:
         # Get configuration
         geojson_path = getattr(args, 'geojson_path',
             'data/poi_batch_1_final_[7480]_combined_5.0km.geojson')
-        graphhopper_url = getattr(args, 'graphhopper_url', 'http://localhost:8989')
+        graphhopper_url = getattr(args, 'graphhopper_url', 'http://localhost:8990')
         depot_index = getattr(args, 'depot_index', 3)  # Default: 顺丰速运(福田)
         customer_radius_km = getattr(args, 'customer_radius_km', 5.0)
         road_radius_km = getattr(args, 'road_radius_km', 10.0)
@@ -199,9 +199,11 @@ class Scenario:
             world.depot_geo[0], world.depot_geo[1]
         )
         world.truck.state.p_pos = depot_env.copy()
+        world.truck.state.p_geo = np.array([world.depot_geo[0], world.depot_geo[1]])
         world.truck.state.p_vel = np.zeros(world.dim_p)
         world.truck.state.current_node = 0
         world.truck.state.target_node = None
+        world.truck.state.road_path_geo = None
         world.truck.action.release_drone = None
         world.truck.action.recover_drone = None
         world.truck.distance_traveled_this_step = 0.0

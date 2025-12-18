@@ -167,7 +167,7 @@ python train_vrp.py \
 | 参数 | 默认值 | 说明 |
 |-----|-------|------|
 | `--use_graphhopper` | False | 启用 GraphHopper 道路距离计算 |
-| `--graphhopper_url` | http://localhost:8989 | GraphHopper 服务地址 |
+| `--graphhopper_url` | http://localhost:8990 | GraphHopper 服务地址 |
 | `--geojson_path` | data/poi_...geojson | POI 数据文件路径 |
 | `--depot_index` | 3 | 快递出发点索引 (默认福田顺丰) |
 | `--customer_radius_km` | 5.0 | 客户筛选半径 (km) |
@@ -254,7 +254,7 @@ from argparse import Namespace
 args = Namespace(
     scenario_name='shenzhen_delivery',
     geojson_path='data/poi_batch_1_final_[7480]_combined_5.0km.geojson',
-    graphhopper_url='http://localhost:8989',
+    graphhopper_url='http://localhost:8990',
     depot_index=3,              # 顺丰速运(福田)
     customer_radius_km=5.0,     # 5km内客户
     road_radius_km=10.0,        # 10km道路网络

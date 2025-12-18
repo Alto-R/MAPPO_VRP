@@ -24,7 +24,7 @@ class MultiAgentVRPEnv(gym.Env):
                  done_callback=None, available_actions_callback=None,
                  share_obs_callback=None, discrete_action=True,
                  use_graphhopper: bool = True,
-                 graphhopper_url: str = "http://localhost:8989",
+                 graphhopper_url: str = "http://localhost:8990",
                  geo_bounds: tuple = None):
         """
         Initialize the environment.
@@ -67,11 +67,13 @@ class MultiAgentVRPEnv(gym.Env):
         # Initialize distance calculator
         # Truck uses GraphHopper for road network distance, drone uses L2 norm
         coord_bounds = (world.bounds[0], world.bounds[1], world.bounds[0], world.bounds[1])
+        # Use geo_bounds from world if available (set by scenario like shenzhen_delivery)
+        actual_geo_bounds = getattr(world, 'geo_bounds', None) or geo_bounds
         self.distance_calculator = DistanceCalculator(
             use_graphhopper=use_graphhopper,
             graphhopper_url=graphhopper_url,
             coord_bounds=coord_bounds,
-            geo_bounds=geo_bounds
+            geo_bounds=actual_geo_bounds
         )
 
         # Configure spaces
@@ -278,9 +280,15 @@ class MultiAgentVRPEnv(gym.Env):
             if action == 0:  # STAY
                 # Clear target - stop moving
                 agent.state.target_node = None
+                agent.state.road_path = None
+                agent.state.path_index = 0
             elif action < 1 + num_nodes:  # MOVE_TO_NODE_X
                 # Set new target node (persistent until reached or changed)
                 node_idx = action - 1
+                # Clear path cache if target changed (will be re-fetched)
+                if agent.state.target_node != node_idx:
+                    agent.state.road_path = None
+                    agent.state.path_index = 0
                 agent.state.target_node = node_idx
             elif action < 1 + num_nodes + num_drones:  # RELEASE_DRONE_X
                 # Release drone - doesn't affect movement
@@ -421,22 +429,128 @@ class MultiAgentVRPEnv(gym.Env):
                     drone.state.battery = min(1.0, drone.state.battery + 0.2)
 
     def _update_truck_state(self):
-        """Update truck position. Uses persistent target_node.
+        """Update truck position along road path.
 
-        Movement simulation uses L2 distance (simplified physics).
-        Road distance (via GraphHopper) is used for distance_traveled calculation.
+        Truck follows the actual road path from GraphHopper, ensuring
+        the truck (and drones launched from it) are always on valid roads.
         """
         truck = self.world.truck
 
         # No target - stay in place
         if truck.state.target_node is None:
             truck.state.p_vel = np.zeros(self.world.dim_p)
+            truck.state.road_path = None
+            truck.state.path_index = 0
             return
 
         # Get target position from target_node
         target = self.world.route_nodes[truck.state.target_node]
 
-        # Use L2 for movement direction (simplified physics)
+        # Initialize road path if needed (new target or no path)
+        if truck.state.road_path is None:
+            self._init_truck_road_path(truck, target)
+
+        # If still no path (GraphHopper failed), fall back to direct movement
+        if truck.state.road_path is None or len(truck.state.road_path) == 0:
+            self._update_truck_direct(truck, target)
+            return
+
+        # Move along the road path
+        self._update_truck_along_path(truck, target)
+
+    def _init_truck_road_path(self, truck, target):
+        """Initialize road path from current position to target."""
+        # Get road path as geographic coordinates
+        geo_path = self.distance_calculator.get_truck_route_path(
+            truck.state.p_pos, target,
+            simplify=True,
+            max_points=100  # Enough resolution for smooth movement
+        )
+
+        if geo_path is None or len(geo_path) < 2:
+            # GraphHopper unavailable or failed
+            truck.state.road_path = None
+            truck.state.road_path_geo = None
+            return
+
+        # Store geographic path for p_geo synchronization
+        truck.state.road_path_geo = geo_path
+
+        # Convert geographic path to environment coordinates
+        env_path = []
+        for point in geo_path:
+            # point is [lon, lat]
+            env_pos = self.distance_calculator.geo_to_env(point[0], point[1])
+            env_path.append(env_pos)
+
+        truck.state.road_path = env_path
+        truck.state.path_index = 0
+
+        # Initialize p_geo to start of path
+        truck.state.p_geo = np.array([geo_path[0][0], geo_path[0][1]])
+
+    def _update_truck_along_path(self, truck, final_target):
+        """Move truck along the cached road path."""
+        path = truck.state.road_path
+        remaining_move = truck.max_speed * self.world.dt
+        total_distance_traveled = 0.0
+
+        while remaining_move > 1e-6 and truck.state.path_index < len(path):
+            # Current waypoint target
+            waypoint = path[truck.state.path_index]
+            direction = waypoint - truck.state.p_pos
+            dist_to_waypoint = np.linalg.norm(direction)
+
+            if dist_to_waypoint < 1e-6:
+                # Already at this waypoint, move to next
+                truck.state.path_index += 1
+                continue
+
+            if dist_to_waypoint <= remaining_move:
+                # Can reach this waypoint, move to it and continue to next
+                total_distance_traveled += dist_to_waypoint
+                remaining_move -= dist_to_waypoint
+                truck.state.p_pos = waypoint.copy()
+                truck.state.path_index += 1
+            else:
+                # Move partially toward waypoint
+                direction = direction / dist_to_waypoint
+                truck.state.p_pos += direction * remaining_move
+                total_distance_traveled += remaining_move
+                truck.state.p_vel = direction * (remaining_move / self.world.dt)
+                remaining_move = 0
+
+        # Record distance traveled (already in env units along road)
+        truck.distance_traveled_this_step = total_distance_traveled
+
+        # Sync p_geo with current path_index
+        if truck.state.road_path_geo is not None:
+            idx = min(truck.state.path_index, len(truck.state.road_path_geo) - 1)
+            geo_point = truck.state.road_path_geo[idx]
+            truck.state.p_geo = np.array([geo_point[0], geo_point[1]])
+
+        # Update onboard drones' positions
+        for drone in self.world.drones:
+            if drone.state.status == 'onboard':
+                drone.state.p_pos = truck.state.p_pos.copy()
+
+        # Check if arrived at final target
+        dist_to_final = np.linalg.norm(final_target - truck.state.p_pos)
+        if dist_to_final < 1e-4 or truck.state.path_index >= len(path):
+            # Arrived at target node
+            truck.state.p_pos = final_target.copy()
+            truck.state.current_node = truck.state.target_node
+            truck.state.target_node = None
+            truck.state.road_path = None
+            truck.state.road_path_geo = None
+            truck.state.path_index = 0
+            truck.state.p_vel = np.zeros(self.world.dim_p)
+            # Update p_geo to final position
+            geo = self.distance_calculator.env_to_geo(final_target)
+            truck.state.p_geo = np.array([geo[0], geo[1]])
+
+    def _update_truck_direct(self, truck, target):
+        """Fallback: direct L2 movement when road path unavailable."""
         direction = target - truck.state.p_pos
         l2_distance = np.linalg.norm(direction)
 
@@ -444,32 +558,23 @@ class MultiAgentVRPEnv(gym.Env):
             direction = direction / l2_distance
             step_size = min(truck.max_speed * self.world.dt, l2_distance)
 
-            # Record start position for road distance calculation
-            start_pos = truck.state.p_pos.copy()
-
-            # Update position (L2 movement)
             truck.state.p_pos += direction * step_size
             truck.state.p_vel = direction * (step_size / self.world.dt)
+            truck.distance_traveled_this_step = step_size
 
-            # Calculate road distance traveled (using GraphHopper if available)
-            # Scale by the proportion of L2 distance covered this step
-            road_distance_to_target = self.distance_calculator.truck_distance(start_pos, target)
-            proportion_traveled = step_size / l2_distance
-            truck.distance_traveled_this_step = road_distance_to_target * proportion_traveled
+            # Sync p_geo using coordinate conversion
+            geo = self.distance_calculator.env_to_geo(truck.state.p_pos)
+            truck.state.p_geo = np.array([geo[0], geo[1]])
 
-            # Update onboard drones' positions
+            # Update onboard drones
             for drone in self.world.drones:
                 if drone.state.status == 'onboard':
                     drone.state.p_pos = truck.state.p_pos.copy()
 
-            # Check if arrived at target node (using L2 for position check)
-            new_distance = np.linalg.norm(target - truck.state.p_pos)
-            if new_distance < 1e-6:
-                # Arrived at target node
+            if np.linalg.norm(target - truck.state.p_pos) < 1e-6:
                 truck.state.current_node = truck.state.target_node
-                truck.state.target_node = None  # Clear target, wait for new command
+                truck.state.target_node = None
         else:
-            # Already at target
             truck.state.current_node = truck.state.target_node
             truck.state.target_node = None
             truck.state.p_vel = np.zeros(self.world.dim_p)

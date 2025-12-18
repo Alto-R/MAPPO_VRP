@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef, useMemo } from 'react'
-import Map from 'react-map-gl/maplibre'
+import MapGL from 'react-map-gl/maplibre'
 import DeckGL from '@deck.gl/react'
-import { ScatterplotLayer, TextLayer, PathLayer } from '@deck.gl/layers'
+import { ScatterplotLayer, PathLayer } from '@deck.gl/layers'
 import 'maplibre-gl/dist/maplibre-gl.css'
 import './App.css'
 
@@ -12,9 +12,30 @@ function App() {
   const [data, setData] = useState(null)
   const [currentStep, setCurrentStep] = useState(0)
   const [isPlaying, setIsPlaying] = useState(false)
-  const [playSpeed, setPlaySpeed] = useState(200)
+  const [playSpeed, setPlaySpeed] = useState(500)
   const [panelOpen, setPanelOpen] = useState(true)
   const canvasRef = useRef(null)
+
+  // Complete truck trajectory (dense path from GraphHopper)
+  const [truckFullPath, setTruckFullPath] = useState(null)
+  const [truckPathIndex, setTruckPathIndex] = useState(0) // 主时间轴：货车在轨迹上的位置
+  const [pathIndexToStep, setPathIndexToStep] = useState(null) // pathIndex -> step 的映射
+  const [routesLoading, setRoutesLoading] = useState(false)
+
+  // Fetch route from GraphHopper
+  const fetchRoute = async (fromLon, fromLat, toLon, toLat) => {
+    try {
+      const url = `http://localhost:8990/route?point=${fromLat},${fromLon}&point=${toLat},${toLon}&profile=car&points_encoded=false`
+      const response = await fetch(url)
+      const data = await response.json()
+      if (data.paths && data.paths[0] && data.paths[0].points) {
+        return data.paths[0].points.coordinates // [[lon, lat], ...]
+      }
+    } catch (e) {
+      console.warn('GraphHopper fetch failed:', e)
+    }
+    return null
+  }
 
   // Load episode data
   useEffect(() => {
@@ -23,24 +44,177 @@ function App() {
       .then(d => {
         setData(d)
         setCurrentStep(0)
+        setTruckFullPath(null)
       })
       .catch(err => console.error('Failed to load data:', err))
   }, [])
 
-  // Auto-play
+  // Build complete truck trajectory after data loads
+  useEffect(() => {
+    if (!data || !data.has_geo || truckFullPath || routesLoading) return
+
+    const buildTruckTrajectory = async () => {
+      setRoutesLoading(true)
+      console.log('Building complete truck trajectory...')
+
+      const timesteps = data.timesteps
+
+      // 提取货车移动的关键点，记录每个点对应的 stepIndex
+      const waypoints = []
+      let lastLon = null, lastLat = null
+
+      for (let i = 0; i < timesteps.length; i++) {
+        const truck = timesteps[i].truck
+        const dist = lastLon !== null
+          ? Math.sqrt((truck.lon - lastLon) ** 2 + (truck.lat - lastLat) ** 2)
+          : Infinity
+
+        if (dist > 0.00001) {
+          waypoints.push({ lon: truck.lon, lat: truck.lat, stepIndex: i })
+          lastLon = truck.lon
+          lastLat = truck.lat
+        }
+      }
+
+      console.log(`Found ${waypoints.length} unique truck waypoints`)
+
+      // 构建完整轨迹，同时记录每个路径点对应的 step（带小数进度）
+      const fullPath = []
+      const pathToStep = [] // pathToStep[pathIdx] = { step, progress }
+
+      for (let i = 0; i < waypoints.length - 1; i++) {
+        const from = waypoints[i]
+        const to = waypoints[i + 1]
+
+        // 获取 GraphHopper 路线
+        const routePath = await fetchRoute(from.lon, from.lat, to.lon, to.lat)
+
+        let segmentPoints = []
+        if (routePath && routePath.length > 0) {
+          const startIdx = fullPath.length > 0 ? 1 : 0
+          for (let j = startIdx; j < routePath.length; j++) {
+            segmentPoints.push(routePath[j])
+          }
+        } else {
+          if (fullPath.length === 0) {
+            segmentPoints.push([from.lon, from.lat])
+          }
+          segmentPoints.push([to.lon, to.lat])
+        }
+
+        // 为这段路径的每个点分配 step 和 progress
+        // 从 from.stepIndex 线性过渡到 to.stepIndex
+        const fromStep = from.stepIndex
+        const toStep = to.stepIndex
+        const numPoints = segmentPoints.length
+
+        for (let j = 0; j < numPoints; j++) {
+          fullPath.push(segmentPoints[j])
+          // 线性插值：pathProgress 从 0 到 1
+          const pathProgress = numPoints > 1 ? j / (numPoints - 1) : 1
+          // 对应的 step（可以是小数）
+          const exactStep = fromStep + pathProgress * (toStep - fromStep)
+          const step = Math.floor(exactStep)
+          const progress = exactStep - step
+          pathToStep.push({ step, progress })
+        }
+      }
+
+      // 处理没有移动的情况
+      if (fullPath.length === 0 && waypoints.length > 0) {
+        fullPath.push([waypoints[0].lon, waypoints[0].lat])
+        pathToStep.push({ step: 0, progress: 0 })
+      }
+
+      console.log(`Complete truck trajectory: ${fullPath.length} points`)
+      console.log('PathToStep sample:', pathToStep.slice(0, 10))
+
+      setTruckFullPath(fullPath)
+      setPathIndexToStep(pathToStep)
+      setRoutesLoading(false)
+    }
+
+    buildTruckTrajectory()
+  }, [data, truckFullPath, routesLoading])
+
+  // 根据 truckPathIndex 直接获取对应的 step 和 progress
+  const getStepAndProgress = (pathIdx) => {
+    if (!pathIndexToStep || pathIdx >= pathIndexToStep.length) {
+      return { step: 0, progress: 0 }
+    }
+    return pathIndexToStep[pathIdx]
+  }
+
+  // 插值计算无人机位置
+  const interpolateDronePosition = (droneIdx, step, progress) => {
+    if (!data || step >= data.timesteps.length - 1) {
+      const drone = data.timesteps[step].drones[droneIdx]
+      return [drone.lon, drone.lat]
+    }
+
+    const currentDrone = data.timesteps[step].drones[droneIdx]
+    const nextDrone = data.timesteps[step + 1].drones[droneIdx]
+
+    // 线性插值
+    const lon = currentDrone.lon + (nextDrone.lon - currentDrone.lon) * progress
+    const lat = currentDrone.lat + (nextDrone.lat - currentDrone.lat) * progress
+    return [lon, lat]
+  }
+
+  // Playback: 以货车轨迹为主时间轴
   useEffect(() => {
     if (!isPlaying || !data) return
-    const interval = setInterval(() => {
-      setCurrentStep(prev => {
-        if (prev >= data.timesteps.length - 1) {
-          setIsPlaying(false)
-          return prev
-        }
-        return prev + 1
-      })
-    }, playSpeed)
-    return () => clearInterval(interval)
-  }, [isPlaying, data, playSpeed])
+
+    if (truckFullPath && truckFullPath.length > 1) {
+      const totalPathPoints = truckFullPath.length
+
+      const timer = setInterval(() => {
+        setTruckPathIndex(prev => {
+          if (prev >= totalPathPoints - 1) {
+            setIsPlaying(false)
+            return prev
+          }
+          return Math.min(prev + 1, totalPathPoints - 1)
+        })
+      }, playSpeed / 10) // 货车平滑移动
+
+      return () => clearInterval(timer)
+    } else {
+      // 没有轨迹时的简单播放
+      const timer = setInterval(() => {
+        setCurrentStep(prev => {
+          if (prev >= data.timesteps.length - 1) {
+            setIsPlaying(false)
+            return prev
+          }
+          return prev + 1
+        })
+      }, playSpeed)
+
+      return () => clearInterval(timer)
+    }
+  }, [isPlaying, data, playSpeed, truckFullPath])
+
+  // 根据 truckPathIndex 更新 currentStep (用于 UI 显示)
+  useEffect(() => {
+    if (truckFullPath && pathIndexToStep) {
+      const { step } = getStepAndProgress(truckPathIndex)
+      setCurrentStep(step)
+    }
+  }, [truckPathIndex, truckFullPath, pathIndexToStep])
+
+  // Helper: set step and sync truckPathIndex
+  const setStepWithSync = (newStep) => {
+    const clampedStep = Math.max(0, Math.min(newStep, data ? data.timesteps.length - 1 : 0))
+    setCurrentStep(clampedStep)
+    if (truckFullPath && pathIndexToStep) {
+      // 找到第一个对应该 step 的路径点
+      const pathIdx = pathIndexToStep.findIndex(p => p.step === clampedStep)
+      if (pathIdx >= 0) {
+        setTruckPathIndex(pathIdx)
+      }
+    }
+  }
 
   // Calculate initial view state for the map
   const initialViewState = useMemo(() => {
@@ -79,26 +253,20 @@ function App() {
         pickable: false
       })
       layersList.push(roadPathsLayer)
+    }
 
-      // Current truck route (highlighted)
-      const currentNode = timestep.truck.current_node
-      const targetNode = timestep.truck.target_node
-      if (currentNode !== null && targetNode !== null && currentNode !== targetNode) {
-        const pathKey = `${currentNode}-${targetNode}`
-        const currentPath = data.road_paths[pathKey]
-        if (currentPath) {
-          const currentRouteLayer = new PathLayer({
-            id: 'current-route',
-            data: [{ path: currentPath }],
-            getPath: d => d.path,
-            getColor: [59, 130, 246, 200],
-            getWidth: 6,
-            widthMinPixels: 4,
-            pickable: false
-          })
-          layersList.push(currentRouteLayer)
-        }
-      }
+    // Complete truck trajectory layer (blue line)
+    if (truckFullPath && truckFullPath.length > 1) {
+      const truckPathLayer = new PathLayer({
+        id: 'truck-trajectory',
+        data: [{ path: truckFullPath }],
+        getPath: d => d.path,
+        getColor: [59, 130, 246, 200],
+        getWidth: 6,
+        widthMinPixels: 3,
+        pickable: false
+      })
+      layersList.push(truckPathLayer)
     }
 
     // Route nodes layer (gray circles)
@@ -126,50 +294,32 @@ function App() {
     })
     layersList.push(customersLayer)
 
-    // Customer labels
-    const customerLabelsLayer = new TextLayer({
-      id: 'customer-labels',
-      data: data.customers,
-      getPosition: d => [d.lon, d.lat],
-      getText: d => d.name || `C${d.id}`,
-      getSize: 12,
-      getColor: [255, 255, 255, 255],
-      getTextAnchor: 'middle',
-      getAlignmentBaseline: 'center',
-      fontFamily: 'Arial',
-      fontWeight: 'bold',
-      background: true,
-      getBackgroundColor: [0, 0, 0, 150],
-      backgroundPadding: [4, 2]
-    })
-    layersList.push(customerLabelsLayer)
-
-    // Truck layer (blue)
+    // Truck layer (blue circle - follows the trajectory path)
+    let truckPos
+    if (truckFullPath && truckFullPath.length > 1) {
+      // Use truckPathIndex directly to get position on the trajectory
+      const pathIdx = Math.min(truckPathIndex, truckFullPath.length - 1)
+      truckPos = truckFullPath[pathIdx]
+    } else {
+      truckPos = [timestep.truck.lon, timestep.truck.lat]
+    }
     const truckLayer = new ScatterplotLayer({
       id: 'truck',
-      data: [timestep.truck],
-      getPosition: d => [d.lon, d.lat],
-      getRadius: 60,
+      data: [{ pos: truckPos }],
+      getPosition: d => d.pos,
+      getRadius: 120,
       getFillColor: [59, 130, 246, 255],
-      pickable: true
+      pickable: true,
+      transitions: {
+        getPosition: {
+          duration: playSpeed / 10, // Match the fast update interval
+          easing: t => t
+        }
+      }
     })
     layersList.push(truckLayer)
 
-    // Truck label
-    const truckLabelLayer = new TextLayer({
-      id: 'truck-label',
-      data: [timestep.truck],
-      getPosition: d => [d.lon, d.lat],
-      getText: () => 'Truck',
-      getSize: 14,
-      getColor: [255, 255, 255, 255],
-      getTextAnchor: 'middle',
-      getAlignmentBaseline: 'center',
-      fontWeight: 'bold'
-    })
-    layersList.push(truckLabelLayer)
-
-    // Drones layer (colored circles)
+    // Drones layer (colored circles) - 使用插值位置
     const droneColors = [
       [245, 158, 11, 255],  // orange
       [139, 92, 246, 255],  // purple
@@ -178,33 +328,41 @@ function App() {
       [14, 165, 233, 255]   // sky blue
     ]
 
+    // 计算当前的 step 和进度用于无人机插值
+    const { step: interpStep, progress: interpProgress } = truckFullPath && pathIndexToStep
+      ? getStepAndProgress(truckPathIndex)
+      : { step: currentStep, progress: 0 }
+
+    const droneData = timestep.drones.map((drone, idx) => {
+      // 使用插值计算无人机位置，与货车时间轴对齐
+      const pos = truckFullPath && pathIndexToStep
+        ? interpolateDronePosition(idx, interpStep, interpProgress)
+        : [drone.lon, drone.lat]
+      return {
+        ...drone,
+        pos
+      }
+    })
+
     const dronesLayer = new ScatterplotLayer({
       id: 'drones',
-      data: timestep.drones,
-      getPosition: d => [d.lon, d.lat],
-      getRadius: 35,
+      data: droneData,
+      getPosition: d => d.pos,
+      getRadius: 100,
       getFillColor: d => droneColors[d.id % droneColors.length],
-      pickable: true
+      pickable: true,
+      // 货车和无人机使用相同的过渡时间
+      transitions: {
+        getPosition: {
+          duration: playSpeed / 10,
+          easing: t => t
+        }
+      }
     })
     layersList.push(dronesLayer)
 
-    // Drone labels with battery
-    const droneLabelLayer = new TextLayer({
-      id: 'drone-labels',
-      data: timestep.drones,
-      getPosition: d => [d.lon, d.lat],
-      getText: d => `D${d.id}\n${Math.round(d.battery * 100)}%`,
-      getSize: 11,
-      getColor: [255, 255, 255, 255],
-      getTextAnchor: 'middle',
-      getAlignmentBaseline: 'bottom',
-      fontWeight: 'bold',
-      getPixelOffset: [0, -25]
-    })
-    layersList.push(droneLabelLayer)
-
     return layersList
-  }, [data, currentStep])
+  }, [data, currentStep, truckFullPath, truckPathIndex, pathIndexToStep, playSpeed])
 
   // Canvas-based rendering for non-geo data
   useEffect(() => {
@@ -287,6 +445,9 @@ function App() {
   }
 
   const timestep = data.timesteps[currentStep]
+  const routeStatus = routesLoading
+    ? 'Loading trajectory...'
+    : (truckFullPath ? `${truckFullPath.length} points` : 'No trajectory')
 
   return (
     <div className="app">
@@ -299,7 +460,7 @@ function App() {
             layers={layers}
             style={{ width: '100%', height: '100%' }}
           >
-            <Map mapStyle={MAP_STYLE} />
+            <MapGL mapStyle={MAP_STYLE} />
           </DeckGL>
         ) : (
           <canvas ref={canvasRef} width={window.innerWidth} height={window.innerHeight} />
@@ -326,19 +487,19 @@ function App() {
             Step: {currentStep} / {data.timesteps.length - 1}
           </div>
           <div className="controls">
-            <button onClick={() => setCurrentStep(0)} title="Reset">
+            <button onClick={() => setStepWithSync(0)} title="Reset">
               ⏮
             </button>
-            <button onClick={() => setCurrentStep(Math.max(0, currentStep - 1))} title="Previous">
+            <button onClick={() => setStepWithSync(currentStep - 1)} title="Previous">
               ◀
             </button>
             <button onClick={() => setIsPlaying(!isPlaying)} title={isPlaying ? 'Pause' : 'Play'}>
               {isPlaying ? '⏸' : '▶'}
             </button>
-            <button onClick={() => setCurrentStep(Math.min(data.timesteps.length - 1, currentStep + 1))} title="Next">
+            <button onClick={() => setStepWithSync(currentStep + 1)} title="Next">
               ▶
             </button>
-            <button onClick={() => setCurrentStep(data.timesteps.length - 1)} title="End">
+            <button onClick={() => setStepWithSync(data.timesteps.length - 1)} title="End">
               ⏭
             </button>
           </div>
@@ -348,7 +509,7 @@ function App() {
               min={0}
               max={data.timesteps.length - 1}
               value={currentStep}
-              onChange={e => setCurrentStep(Number(e.target.value))}
+              onChange={e => setStepWithSync(Number(e.target.value))}
             />
           </div>
           <div className="speed-control">
@@ -356,7 +517,7 @@ function App() {
             <input
               type="range"
               min={50}
-              max={500}
+              max={1000}
               step={50}
               value={playSpeed}
               onChange={e => setPlaySpeed(Number(e.target.value))}
@@ -390,6 +551,10 @@ function App() {
             <div className="info-item">
               <span className="info-label">Step Reward</span>
               <span className="info-value">{timestep.reward.toFixed(2)}</span>
+            </div>
+            <div className="info-item">
+              <span className="info-label">Truck Path</span>
+              <span className="info-value" style={{ fontSize: '12px' }}>{routeStatus}</span>
             </div>
           </div>
         </div>
@@ -430,6 +595,10 @@ function App() {
               <span>Truck</span>
             </div>
             <div className="legend-item">
+              <span className="line blue"></span>
+              <span>Truck Trajectory</span>
+            </div>
+            <div className="legend-item">
               <span className="dot orange"></span>
               <span>Drone</span>
             </div>
@@ -444,10 +613,6 @@ function App() {
             <div className="legend-item">
               <span className="dot gray"></span>
               <span>Route Node</span>
-            </div>
-            <div className="legend-item">
-              <span className="line blue"></span>
-              <span>Current Route</span>
             </div>
             <div className="legend-item">
               <span className="line gray"></span>

@@ -19,6 +19,11 @@ class TruckState(EntityState):
         super().__init__()
         self.current_node = None  # Current node index in route graph
         self.target_node = None   # Target node index (persistent until reached or changed)
+        # Road path following
+        self.road_path = None     # List of [x, y] points along road (env coords)
+        self.road_path_geo = None # List of [lon, lat] points along road (geo coords)
+        self.path_index = 0       # Current index in road_path
+        self.p_geo = None         # Current geographic position [lon, lat]
 
 
 class DroneState(EntityState):

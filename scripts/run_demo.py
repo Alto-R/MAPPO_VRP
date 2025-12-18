@@ -141,42 +141,6 @@ def run_demo(args):
             return {'lon': float(lon), 'lat': float(lat)}
         return None
 
-    # Helper function to interpolate truck position along road path
-    def get_truck_geo_on_road(truck_pos, current_node, target_node):
-        """
-        If truck is traveling between nodes and road path exists,
-        interpolate position along the road path based on progress.
-        """
-        if not has_geo:
-            return None
-
-        # If not traveling or same node, just use direct conversion
-        if current_node is None or target_node is None or current_node == target_node:
-            return env_to_geo(truck_pos)
-
-        path_key = f"{current_node}-{target_node}"
-        if path_key not in road_paths or len(road_paths[path_key]) < 2:
-            return env_to_geo(truck_pos)
-
-        road_path = road_paths[path_key]
-
-        # Calculate progress along the segment in env coordinates
-        start_pos = env.world.route_nodes[current_node]
-        end_pos = env.world.route_nodes[target_node]
-        total_dist = np.linalg.norm(end_pos - start_pos)
-
-        if total_dist < 1e-6:
-            return env_to_geo(truck_pos)
-
-        current_dist = np.linalg.norm(truck_pos - start_pos)
-        progress = min(1.0, max(0.0, current_dist / total_dist))
-
-        # Interpolate along road path
-        path_idx = int(progress * (len(road_path) - 1))
-        path_idx = min(path_idx, len(road_path) - 1)
-
-        return {'lon': float(road_path[path_idx][0]), 'lat': float(road_path[path_idx][1])}
-
     # Store route nodes (fixed positions)
     for node in env.world.route_nodes:
         node_data = {
@@ -255,19 +219,26 @@ def run_demo(args):
         truck_pos = env.world.truck.state.p_pos
         current_node = env.world.truck.state.current_node
         target_node = env.world.truck.state.target_node
+        path_index = env.world.truck.state.path_index
         truck_data = {
             'x': float(truck_pos[0]),
             'y': float(truck_pos[1]),
             'vel_x': float(env.world.truck.state.p_vel[0]),
             'vel_y': float(env.world.truck.state.p_vel[1]),
             'current_node': int(current_node) if current_node is not None else None,
-            'target_node': int(target_node) if target_node is not None else None
+            'target_node': int(target_node) if target_node is not None else None,
+            'path_index': int(path_index) if path_index is not None else 0
         }
         if has_geo:
-            # Use road-interpolated position if available
-            geo = get_truck_geo_on_road(truck_pos, current_node, target_node)
-            truck_data['lon'] = geo['lon']
-            truck_data['lat'] = geo['lat']
+            # Use p_geo directly from truck state
+            if env.world.truck.state.p_geo is not None:
+                truck_data['lon'] = float(env.world.truck.state.p_geo[0])
+                truck_data['lat'] = float(env.world.truck.state.p_geo[1])
+            else:
+                # Fallback to coordinate conversion
+                geo = env_to_geo(truck_pos)
+                truck_data['lon'] = geo['lon']
+                truck_data['lat'] = geo['lat']
 
         timestep_data = {
             'step': step,
@@ -341,18 +312,26 @@ def run_demo(args):
     final_truck_pos = env.world.truck.state.p_pos
     final_current_node = env.world.truck.state.current_node
     final_target_node = env.world.truck.state.target_node
+    final_path_index = env.world.truck.state.path_index
     final_truck_data = {
         'x': float(final_truck_pos[0]),
         'y': float(final_truck_pos[1]),
         'vel_x': float(env.world.truck.state.p_vel[0]),
         'vel_y': float(env.world.truck.state.p_vel[1]),
         'current_node': int(final_current_node) if final_current_node is not None else None,
-        'target_node': int(final_target_node) if final_target_node is not None else None
+        'target_node': int(final_target_node) if final_target_node is not None else None,
+        'path_index': int(final_path_index) if final_path_index is not None else 0
     }
     if has_geo:
-        geo = get_truck_geo_on_road(final_truck_pos, final_current_node, final_target_node)
-        final_truck_data['lon'] = geo['lon']
-        final_truck_data['lat'] = geo['lat']
+        # Use p_geo directly from truck state
+        if env.world.truck.state.p_geo is not None:
+            final_truck_data['lon'] = float(env.world.truck.state.p_geo[0])
+            final_truck_data['lat'] = float(env.world.truck.state.p_geo[1])
+        else:
+            # Fallback to coordinate conversion
+            geo = env_to_geo(final_truck_pos)
+            final_truck_data['lon'] = geo['lon']
+            final_truck_data['lat'] = geo['lat']
 
     final_timestep = {
         'step': step,
@@ -469,7 +448,7 @@ def main():
     # GraphHopper distance calculation parameters
     parser.add_argument('--use_graphhopper', action='store_true', default=False,
                         help="Use GraphHopper for truck road distance calculation (default: False, use L2)")
-    parser.add_argument('--graphhopper_url', type=str, default='http://localhost:8989',
+    parser.add_argument('--graphhopper_url', type=str, default='http://localhost:8990',
                         help="GraphHopper service URL")
     parser.add_argument('--geo_bounds', type=str, default=None,
                         help="Geographic bounds for coordinate conversion: 'min_lon,max_lon,min_lat,max_lat'")

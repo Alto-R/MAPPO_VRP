@@ -75,8 +75,8 @@ if "%ACTION%"=="import" (
     )
 
     echo [INFO] 启动 GraphHopper 服务...
-    echo [INFO] 服务地址: http://localhost:8989
-    echo [INFO] API 文档: http://localhost:8989/maps/
+    echo [INFO] 服务地址: http://localhost:8990
+    echo [INFO] API 文档: http://localhost:8990/maps/
     echo [INFO] 按 Ctrl+C 停止服务
     echo.
 

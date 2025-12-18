@@ -23,7 +23,7 @@ from typing import Tuple, List, Dict, Any, Optional
 class GraphHopperClient:
     """GraphHopper 路由服务客户端"""
 
-    def __init__(self, base_url: str = "http://localhost:8989"):
+    def __init__(self, base_url: str = "http://localhost:8990"):
         """
         初始化客户端
 

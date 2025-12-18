@@ -48,14 +48,14 @@ graphhopper:
 server:
   application_connectors:
     - type: http
-      port: 8989
+      port: 8990
       bind_host: localhost
       max_request_header_size: 50k
   request_log:
     appenders: []
   admin_connectors:
     - type: http
-      port: 8990
+      port: 8993
       bind_host: localhost
 
 logging:
