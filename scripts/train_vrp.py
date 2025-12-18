@@ -55,8 +55,8 @@ def make_eval_env(all_args):
 def parse_args(args, parser):
     """Parse VRP-specific arguments."""
     # Scenario
-    parser.add_argument('--scenario_name', type=str, default='truck_drone_basic',
-                        help="Scenario name (truck_drone_basic)")
+    parser.add_argument('--scenario_name', type=str, default='shenzhen_delivery',
+                        help="Scenario name (truck_drone_basic or shenzhen_delivery)")
 
     # VRP configuration
     parser.add_argument('--num_drones', type=int, default=5,

@@ -248,6 +248,74 @@ class DistanceCalculator:
             'graphhopper_available': self.gh_available
         }
 
+    def get_truck_route_path(
+        self,
+        pos1: np.ndarray,
+        pos2: np.ndarray,
+        simplify: bool = True,
+        max_points: int = 50
+    ) -> Optional[list]:
+        """
+        Get the actual road path between two positions.
+
+        Args:
+            pos1: Start position [x, y] in environment coordinates
+            pos2: End position [x, y] in environment coordinates
+            simplify: Whether to simplify the path
+            max_points: Maximum number of points to return
+
+        Returns:
+            List of points [[lon, lat], ...] representing the road path,
+            or None if GraphHopper unavailable
+        """
+        if not self.use_graphhopper or not self.gh_available:
+            return None
+
+        # Same position - no route needed
+        if np.allclose(pos1, pos2, atol=1e-6):
+            geo = self.env_to_geo(pos1)
+            return [[geo[0], geo[1]]]
+
+        try:
+            # Convert to geographic coordinates
+            geo1 = self.env_to_geo(pos1)
+            geo2 = self.env_to_geo(pos2)
+
+            # Call GraphHopper API with calc_points=True
+            route = self.gh_client.route(
+                start=geo1,
+                end=geo2,
+                profile="truck",
+                calc_points=True,
+                points_encoded=False,
+                instructions=False
+            )
+
+            # Extract path points (gh_client already extracts coordinates as a list)
+            points = route.get('points', [])
+
+            if not points:
+                # Fallback to straight line
+                return [[geo1[0], geo1[1]], [geo2[0], geo2[1]]]
+
+            # Simplify path if requested
+            if simplify and len(points) > max_points:
+                original_end = points[-1]
+                step = len(points) // max_points
+                points = points[::step]
+                # Ensure end point is included
+                if points[-1] != original_end:
+                    points.append(original_end)
+
+            return points
+
+        except Exception as e:
+            print(f"[DistanceCalculator] Route path query failed: {e}")
+            # Fallback to straight line
+            geo1 = self.env_to_geo(pos1)
+            geo2 = self.env_to_geo(pos2)
+            return [[geo1[0], geo1[1]], [geo2[0], geo2[1]]]
+
 
 # Global instance for convenience
 _default_calculator: Optional[DistanceCalculator] = None

@@ -127,7 +127,7 @@ python train_vrp.py \
     --road_radius_km 10.0 \
     --num_env_steps 1000000 \
     --episode_length 200 \
-    --n_rollout_threads 4
+    --n_rollout_threads 24
 ```
 
 **可选快递出发点** (`--depot_index`):

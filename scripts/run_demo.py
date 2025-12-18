@@ -4,9 +4,13 @@ Generates JSON data for visualization.
 
 Usage:
     # Random actions (no model):
-    python run_demo.py --num_drones 2 --num_customers 3
+    python run_demo.py --scenario_name shenzhen_delivery --num_drones 2 --num_customers 10 --random
 
-    # With trained model:
+    # With trained model (auto-find latest):
+    python run_demo.py --scenario_name shenzhen_delivery --use_graphhopper --depot_index 3 \
+        --num_customers 10 --num_drones 2 --customer_radius_km 5.0 --road_radius_km 10.0
+
+    # With specific model directory:
     python run_demo.py --model_dir "path/to/model/files" --num_drones 2 --num_customers 3
 """
 
@@ -115,12 +119,108 @@ def run_demo(args):
         'timesteps': []
     }
 
+    # Check if we have geographic data (shenzhen scenario)
+    has_geo = hasattr(env.world, 'coord_converter') and env.world.coord_converter is not None
+    if has_geo:
+        geo_bounds = env.world.geo_bounds
+        episode_data['geo_bounds'] = {
+            'min_lon': float(geo_bounds[0]),
+            'max_lon': float(geo_bounds[1]),
+            'min_lat': float(geo_bounds[2]),
+            'max_lat': float(geo_bounds[3])
+        }
+        episode_data['has_geo'] = True
+        print(f"Geographic data available: lon=[{geo_bounds[0]:.5f}, {geo_bounds[1]:.5f}], lat=[{geo_bounds[2]:.5f}, {geo_bounds[3]:.5f}]")
+    else:
+        episode_data['has_geo'] = False
+
+    # Helper function to convert env coords to geo coords
+    def env_to_geo(pos):
+        if has_geo:
+            lon, lat = env.world.coord_converter.env_to_geo(pos)
+            return {'lon': float(lon), 'lat': float(lat)}
+        return None
+
+    # Helper function to interpolate truck position along road path
+    def get_truck_geo_on_road(truck_pos, current_node, target_node):
+        """
+        If truck is traveling between nodes and road path exists,
+        interpolate position along the road path based on progress.
+        """
+        if not has_geo:
+            return None
+
+        # If not traveling or same node, just use direct conversion
+        if current_node is None or target_node is None or current_node == target_node:
+            return env_to_geo(truck_pos)
+
+        path_key = f"{current_node}-{target_node}"
+        if path_key not in road_paths or len(road_paths[path_key]) < 2:
+            return env_to_geo(truck_pos)
+
+        road_path = road_paths[path_key]
+
+        # Calculate progress along the segment in env coordinates
+        start_pos = env.world.route_nodes[current_node]
+        end_pos = env.world.route_nodes[target_node]
+        total_dist = np.linalg.norm(end_pos - start_pos)
+
+        if total_dist < 1e-6:
+            return env_to_geo(truck_pos)
+
+        current_dist = np.linalg.norm(truck_pos - start_pos)
+        progress = min(1.0, max(0.0, current_dist / total_dist))
+
+        # Interpolate along road path
+        path_idx = int(progress * (len(road_path) - 1))
+        path_idx = min(path_idx, len(road_path) - 1)
+
+        return {'lon': float(road_path[path_idx][0]), 'lat': float(road_path[path_idx][1])}
+
     # Store route nodes (fixed positions)
     for node in env.world.route_nodes:
-        episode_data['route_nodes'].append({
+        node_data = {
             'x': float(node[0]),
             'y': float(node[1])
-        })
+        }
+        if has_geo:
+            geo = env_to_geo(node)
+            node_data['lon'] = geo['lon']
+            node_data['lat'] = geo['lat']
+        episode_data['route_nodes'].append(node_data)
+
+    # Pre-compute road paths between route nodes if GraphHopper is available
+    road_paths = {}
+    if has_geo and args.use_graphhopper:
+        print("Pre-computing road paths between route nodes...")
+        try:
+            from mappo.envs.vrp.distance_utils import DistanceCalculator
+            dist_calc = DistanceCalculator(
+                use_graphhopper=True,
+                graphhopper_url=args.graphhopper_url,
+                geo_bounds=env.world.geo_bounds
+            )
+
+            num_nodes = len(env.world.route_nodes)
+            for i in range(num_nodes):
+                for j in range(num_nodes):
+                    if i != j:
+                        path = dist_calc.get_truck_route_path(
+                            env.world.route_nodes[i],
+                            env.world.route_nodes[j],
+                            simplify=True,
+                            max_points=100
+                        )
+                        if path:
+                            road_paths[f"{i}-{j}"] = path
+
+            print(f"  Computed {len(road_paths)} road paths")
+            episode_data['road_paths'] = road_paths
+        except Exception as e:
+            print(f"  Warning: Failed to compute road paths: {e}")
+            episode_data['road_paths'] = {}
+    else:
+        episode_data['road_paths'] = {}
 
     # Reset environment
     obs_n = env.reset()
@@ -128,14 +228,22 @@ def run_demo(args):
     # Store initial customer positions (these are randomized on reset)
     initial_customers = []
     for i, c in enumerate(env.world.customers):
-        initial_customers.append({
+        cust_data = {
             'id': i,
             'x': float(c.state.p_pos[0]),
             'y': float(c.state.p_pos[1]),
             'time_window_start': int(c.state.time_window_start),
             'time_window_end': int(c.state.time_window_end),
             'demand': float(c.state.demand)
-        })
+        }
+        if has_geo:
+            geo = env_to_geo(c.state.p_pos)
+            cust_data['lon'] = geo['lon']
+            cust_data['lat'] = geo['lat']
+            # Include POI name if available
+            if hasattr(c, 'geo_info') and c.geo_info:
+                cust_data['name'] = c.geo_info.get('name', f'Customer {i}')
+        initial_customers.append(cust_data)
     episode_data['customers'] = initial_customers
 
     done = False
@@ -144,14 +252,26 @@ def run_demo(args):
 
     while not done and step < args.episode_length:
         # Record current state
+        truck_pos = env.world.truck.state.p_pos
+        current_node = env.world.truck.state.current_node
+        target_node = env.world.truck.state.target_node
+        truck_data = {
+            'x': float(truck_pos[0]),
+            'y': float(truck_pos[1]),
+            'vel_x': float(env.world.truck.state.p_vel[0]),
+            'vel_y': float(env.world.truck.state.p_vel[1]),
+            'current_node': int(current_node) if current_node is not None else None,
+            'target_node': int(target_node) if target_node is not None else None
+        }
+        if has_geo:
+            # Use road-interpolated position if available
+            geo = get_truck_geo_on_road(truck_pos, current_node, target_node)
+            truck_data['lon'] = geo['lon']
+            truck_data['lat'] = geo['lat']
+
         timestep_data = {
             'step': step,
-            'truck': {
-                'x': float(env.world.truck.state.p_pos[0]),
-                'y': float(env.world.truck.state.p_pos[1]),
-                'vel_x': float(env.world.truck.state.p_vel[0]),
-                'vel_y': float(env.world.truck.state.p_vel[1])
-            },
+            'truck': truck_data,
             'drones': [],
             'customers_served': [],
             'actions': [],
@@ -161,14 +281,19 @@ def run_demo(args):
         # Record drone states
         for i, drone in enumerate(env.world.drones):
             carrying = drone.state.carrying_package
-            timestep_data['drones'].append({
+            drone_data = {
                 'id': i,
                 'x': float(drone.state.p_pos[0]),
                 'y': float(drone.state.p_pos[1]),
                 'battery': float(drone.state.battery),
                 'status': drone.state.status,
                 'carrying_package': int(carrying) if carrying is not None else None
-            })
+            }
+            if has_geo:
+                geo = env_to_geo(drone.state.p_pos)
+                drone_data['lon'] = geo['lon']
+                drone_data['lat'] = geo['lat']
+            timestep_data['drones'].append(drone_data)
 
         # Record which customers are served
         for i, c in enumerate(env.world.customers):
@@ -213,14 +338,25 @@ def run_demo(args):
         step += 1
 
     # Add final state
+    final_truck_pos = env.world.truck.state.p_pos
+    final_current_node = env.world.truck.state.current_node
+    final_target_node = env.world.truck.state.target_node
+    final_truck_data = {
+        'x': float(final_truck_pos[0]),
+        'y': float(final_truck_pos[1]),
+        'vel_x': float(env.world.truck.state.p_vel[0]),
+        'vel_y': float(env.world.truck.state.p_vel[1]),
+        'current_node': int(final_current_node) if final_current_node is not None else None,
+        'target_node': int(final_target_node) if final_target_node is not None else None
+    }
+    if has_geo:
+        geo = get_truck_geo_on_road(final_truck_pos, final_current_node, final_target_node)
+        final_truck_data['lon'] = geo['lon']
+        final_truck_data['lat'] = geo['lat']
+
     final_timestep = {
         'step': step,
-        'truck': {
-            'x': float(env.world.truck.state.p_pos[0]),
-            'y': float(env.world.truck.state.p_pos[1]),
-            'vel_x': float(env.world.truck.state.p_vel[0]),
-            'vel_y': float(env.world.truck.state.p_vel[1])
-        },
+        'truck': final_truck_data,
         'drones': [],
         'customers_served': [],
         'actions': [],
@@ -228,14 +364,19 @@ def run_demo(args):
     }
     for i, drone in enumerate(env.world.drones):
         carrying = drone.state.carrying_package
-        final_timestep['drones'].append({
+        drone_data = {
             'id': i,
             'x': float(drone.state.p_pos[0]),
             'y': float(drone.state.p_pos[1]),
             'battery': float(drone.state.battery),
             'status': drone.state.status,
             'carrying_package': int(carrying) if carrying is not None else None
-        })
+        }
+        if has_geo:
+            geo = env_to_geo(drone.state.p_pos)
+            drone_data['lon'] = geo['lon']
+            drone_data['lat'] = geo['lat']
+        final_timestep['drones'].append(drone_data)
     for i, c in enumerate(env.world.customers):
         if c.state.served:
             final_timestep['customers_served'].append(i)
@@ -267,7 +408,7 @@ def run_demo(args):
     return episode_data
 
 
-def find_latest_model_dir(scenario_name='truck_drone_basic', algorithm='mappo', experiment='check'):
+def find_latest_model_dir(scenario_name='shenzhen_delivery', algorithm='mappo', experiment='check'):
     """Find the latest model directory based on run number."""
     base_dir = os.path.join(
         os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
@@ -294,14 +435,58 @@ def find_latest_model_dir(scenario_name='truck_drone_basic', algorithm='mappo', 
 
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument('--scenario_name', type=str, default='truck_drone_basic')
-    parser.add_argument('--num_drones', type=int, default=5)
-    parser.add_argument('--num_customers', type=int, default=15)
-    parser.add_argument('--num_route_nodes', type=int, default=5)
-    parser.add_argument('--episode_length', type=int, default=100000)
-    parser.add_argument('--delivery_threshold', type=float, default=0.05)
-    parser.add_argument('--recovery_threshold', type=float, default=0.1)
-    parser.add_argument('--seed', type=int, default=42)
+
+    # Scenario
+    parser.add_argument('--scenario_name', type=str, default='shenzhen_delivery',
+                        help="Scenario name (truck_drone_basic or shenzhen_delivery)")
+
+    # VRP configuration
+    parser.add_argument('--num_drones', type=int, default=2,
+                        help="Number of drones")
+    parser.add_argument('--num_customers', type=int, default=10,
+                        help="Number of customers to serve")
+    parser.add_argument('--num_route_nodes', type=int, default=5,
+                        help="Number of route nodes for truck")
+    parser.add_argument('--episode_length', type=int, default=200,
+                        help="Max length for any episode")
+
+    # Thresholds
+    parser.add_argument('--delivery_threshold', type=float, default=0.05,
+                        help="Distance threshold for delivery completion")
+    parser.add_argument('--recovery_threshold', type=float, default=0.1,
+                        help="Distance threshold for drone recovery")
+
+    # Reward parameters
+    parser.add_argument('--delivery_bonus', type=float, default=10.0,
+                        help="Reward for successful delivery")
+    parser.add_argument('--late_penalty', type=float, default=0.5,
+                        help="Penalty per step for late delivery")
+    parser.add_argument('--energy_cost', type=float, default=0.1,
+                        help="Cost per unit of energy consumed")
+    parser.add_argument('--completion_bonus', type=float, default=50.0,
+                        help="Bonus for serving all customers")
+
+    # GraphHopper distance calculation parameters
+    parser.add_argument('--use_graphhopper', action='store_true', default=False,
+                        help="Use GraphHopper for truck road distance calculation (default: False, use L2)")
+    parser.add_argument('--graphhopper_url', type=str, default='http://localhost:8989',
+                        help="GraphHopper service URL")
+    parser.add_argument('--geo_bounds', type=str, default=None,
+                        help="Geographic bounds for coordinate conversion: 'min_lon,max_lon,min_lat,max_lat'")
+
+    # Shenzhen delivery scenario parameters
+    parser.add_argument('--geojson_path', type=str,
+                        default='data/poi_batch_1_final_[7480]_combined_5.0km.geojson',
+                        help="Path to GeoJSON file containing POI data")
+    parser.add_argument('--depot_index', type=int, default=3,
+                        help="Index of express point to use as depot (default: 3 = 顺丰速运福田)")
+    parser.add_argument('--customer_radius_km', type=float, default=5.0,
+                        help="Radius in km for customer selection around depot")
+    parser.add_argument('--road_radius_km', type=float, default=10.0,
+                        help="Radius in km for road network generation around depot")
+
+    parser.add_argument('--seed', type=int, default=42,
+                        help="Random seed")
 
     # Model loading
     parser.add_argument('--model_dir', type=str, default=None,
