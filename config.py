@@ -186,7 +186,7 @@ def get_config():
     # GraphHopper distance calculation parameters
     parser.add_argument("--use_graphhopper", action='store_true', default=False,
                         help="Use GraphHopper for truck road distance calculation (default: False, use L2)")
-    parser.add_argument("--graphhopper_url", type=str, default='http://localhost:8990',
+    parser.add_argument("--graphhopper_url", type=str, default='http://localhost:8995',
                         help="GraphHopper service URL")
     parser.add_argument("--geo_bounds", type=str, default=None,
                         help="Geographic bounds for coordinate conversion: 'min_lon,max_lon,min_lat,max_lat'")
@@ -283,6 +283,17 @@ def get_config():
     # run parameters
     parser.add_argument("--use_linear_lr_decay", action='store_true',
                         default=False, help='use a linear schedule on the learning rate')
+
+    # early stopping parameters
+    parser.add_argument("--use_early_stopping", action='store_true',
+                        default=False, help='Enable early stopping based on reward convergence')
+    parser.add_argument("--early_stop_patience", type=int, default=50,
+                        help='Number of episodes to wait for improvement before stopping')
+    parser.add_argument("--early_stop_min_delta", type=float, default=0.01,
+                        help='Minimum change in reward to qualify as an improvement')
+    parser.add_argument("--early_stop_window", type=int, default=10,
+                        help='Window size for calculating moving average reward')
+
     # save parameters
     parser.add_argument("--save_interval", type=int, default=1, help="time duration between contiunous twice models saving.")
 

@@ -24,7 +24,7 @@ class MultiAgentVRPEnv(gym.Env):
                  done_callback=None, available_actions_callback=None,
                  share_obs_callback=None, discrete_action=True,
                  use_graphhopper: bool = True,
-                 graphhopper_url: str = "http://localhost:8990",
+                 graphhopper_url: str = "http://localhost:8995",
                  geo_bounds: tuple = None):
         """
         Initialize the environment.

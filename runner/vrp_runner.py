@@ -24,6 +24,17 @@ class VRPRunner(Runner):
     def __init__(self, config):
         super(VRPRunner, self).__init__(config)
 
+        # Early stopping setup
+        self.use_early_stopping = getattr(self.all_args, 'use_early_stopping', False)
+        self.early_stop_patience = getattr(self.all_args, 'early_stop_patience', 50)
+        self.early_stop_min_delta = getattr(self.all_args, 'early_stop_min_delta', 0.01)
+        self.early_stop_window = getattr(self.all_args, 'early_stop_window', 10)
+
+        # Early stopping state
+        self.reward_history = []
+        self.best_avg_reward = float('-inf')
+        self.episodes_without_improvement = 0
+
     def run(self):
         """Main training loop."""
         self.warmup()
@@ -77,6 +88,18 @@ class VRPRunner(Runner):
             # Evaluation
             if episode % self.eval_interval == 0 and self.use_eval:
                 self.eval(total_num_steps)
+
+            # Early stopping check
+            if self.use_early_stopping:
+                should_stop, reason = self._check_early_stopping(train_infos)
+                if should_stop:
+                    print(f"\n{'='*50}")
+                    print(f"Early stopping triggered at episode {episode}")
+                    print(f"Reason: {reason}")
+                    print(f"Best average reward: {self.best_avg_reward:.4f}")
+                    print(f"{'='*50}\n")
+                    self.save()  # Save final model
+                    break
 
     def warmup(self):
         """Initialize buffer with first observation."""
@@ -247,6 +270,49 @@ class VRPRunner(Runner):
             })
             print(f"  Agent {agent_id} average episode rewards: "
                   f"{train_infos[agent_id]['average_episode_rewards']:.2f}")
+
+    def _check_early_stopping(self, train_infos):
+        """
+        Check if early stopping criteria are met.
+
+        Returns:
+            (should_stop, reason): Tuple of bool and string
+        """
+        # Calculate current episode reward (average across all agents)
+        current_reward = np.mean([
+            train_infos[agent_id].get('average_episode_rewards', 0)
+            for agent_id in range(self.num_agents)
+        ])
+
+        # Add to history
+        self.reward_history.append(current_reward)
+
+        # Need at least window_size episodes to compute moving average
+        if len(self.reward_history) < self.early_stop_window:
+            return False, ""
+
+        # Calculate moving average
+        recent_rewards = self.reward_history[-self.early_stop_window:]
+        current_avg_reward = np.mean(recent_rewards)
+
+        # Check for improvement
+        if current_avg_reward > self.best_avg_reward + self.early_stop_min_delta:
+            self.best_avg_reward = current_avg_reward
+            self.episodes_without_improvement = 0
+            # Save best model
+            self.save()
+            print(f"  [Early Stop] New best avg reward: {self.best_avg_reward:.4f}")
+        else:
+            self.episodes_without_improvement += 1
+            if self.episodes_without_improvement % 10 == 0:
+                print(f"  [Early Stop] No improvement for {self.episodes_without_improvement} episodes "
+                      f"(patience: {self.early_stop_patience})")
+
+        # Check if patience exceeded
+        if self.episodes_without_improvement >= self.early_stop_patience:
+            return True, f"No improvement for {self.early_stop_patience} episodes"
+
+        return False, ""
 
     @torch.no_grad()
     def eval(self, total_num_steps):

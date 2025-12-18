@@ -21,7 +21,7 @@ def VRPEnv(args):
             - delivery_threshold: Distance threshold for delivery
             - recovery_threshold: Distance threshold for drone recovery
             - use_graphhopper: Whether to use GraphHopper for truck distance (default: True)
-            - graphhopper_url: GraphHopper service URL (default: http://localhost:8990)
+            - graphhopper_url: GraphHopper service URL (default: http://localhost:8995)
             - geo_bounds: Geographic bounds for coordinate conversion (min_lon, max_lon, min_lat, max_lat)
 
     Returns:
@@ -36,7 +36,7 @@ def VRPEnv(args):
 
     # GraphHopper settings
     use_graphhopper = getattr(args, 'use_graphhopper', False)
-    graphhopper_url = getattr(args, 'graphhopper_url', 'http://localhost:8990')
+    graphhopper_url = getattr(args, 'graphhopper_url', 'http://localhost:8995')
 
     # Parse geo_bounds from string format "min_lon,max_lon,min_lat,max_lat"
     geo_bounds_str = getattr(args, 'geo_bounds', None)

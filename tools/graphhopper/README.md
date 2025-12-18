@@ -24,8 +24,8 @@ start_graphhopper.bat server
 ```
 
 服务启动后：
-- Web UI: http://localhost:8990
-- API: http://localhost:8990/route
+- Web UI: http://localhost:8995
+- API: http://localhost:8995/route
 
 ### 2. 重新导入地图 (可选)
 
@@ -43,7 +43,7 @@ start_graphhopper.bat import
 from mappo.tools.graphhopper.gh_client import GraphHopperClient
 
 # 创建客户端
-client = GraphHopperClient("http://localhost:8990")
+client = GraphHopperClient("http://localhost:8995")
 
 # 检查服务是否可用
 if not client.is_available():
@@ -122,7 +122,7 @@ graphhopper:
 server:
   application_connectors:
     - type: http
-      port: 8990          # 服务端口
+      port: 8995          # 服务端口
       bind_host: localhost
 ```
 
@@ -136,7 +136,7 @@ GET /route?point={lat},{lon}&point={lat},{lon}&profile=truck
 
 示例：
 ```
-http://localhost:8990/route?point=23.1291,113.3245&point=23.1067,113.2644&profile=truck
+http://localhost:8995/route?point=23.1291,113.3245&point=23.1067,113.2644&profile=truck
 ```
 
 ### 距离矩阵

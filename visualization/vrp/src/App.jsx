@@ -25,7 +25,7 @@ function App() {
   // Fetch route from GraphHopper
   const fetchRoute = async (fromLon, fromLat, toLon, toLat) => {
     try {
-      const url = `http://localhost:8990/route?point=${fromLat},${fromLon}&point=${toLat},${toLon}&profile=car&points_encoded=false`
+      const url = `http://localhost:8995/route?point=${fromLat},${fromLon}&point=${toLat},${toLon}&profile=car&points_encoded=false`
       const response = await fetch(url)
       const data = await response.json()
       if (data.paths && data.paths[0] && data.paths[0].points) {
@@ -517,7 +517,7 @@ function App() {
             <input
               type="range"
               min={50}
-              max={1000}
+              max={5000}
               step={50}
               value={playSpeed}
               onChange={e => setPlaySpeed(Number(e.target.value))}

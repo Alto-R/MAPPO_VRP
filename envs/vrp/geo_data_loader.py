@@ -22,7 +22,7 @@ class GeoDataLoader:
     def __init__(
         self,
         geojson_path: str,
-        graphhopper_url: str = "http://localhost:8990"
+        graphhopper_url: str = "http://localhost:8995"
     ):
         """
         Initialize the data loader.

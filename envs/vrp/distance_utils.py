@@ -23,7 +23,7 @@ class DistanceCalculator:
     def __init__(
         self,
         use_graphhopper: bool = True,
-        graphhopper_url: str = "http://localhost:8990",
+        graphhopper_url: str = "http://localhost:8995",
         coord_bounds: Tuple[float, float, float, float] = None,
         geo_bounds: Tuple[float, float, float, float] = None,
     ):
@@ -323,7 +323,7 @@ _default_calculator: Optional[DistanceCalculator] = None
 
 def get_distance_calculator(
     use_graphhopper: bool = True,
-    graphhopper_url: str = "http://localhost:8990",
+    graphhopper_url: str = "http://localhost:8995",
     coord_bounds: Tuple[float, float, float, float] = None,
     geo_bounds: Tuple[float, float, float, float] = None,
     force_new: bool = False

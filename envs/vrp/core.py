@@ -94,7 +94,7 @@ class Drone(Entity):
         self.action = DroneAction()
         self.max_speed = 2.0       # Faster than truck
         self.max_battery = 1.0
-        self.battery_consumption_rate = 0.01  # Per distance unit
+        self.battery_consumption_rate = 1  # Per distance unit
         self.color = np.array([0.25, 0.25, 0.75])  # Blue
 
         # Per-step tracking flags
@@ -131,7 +131,7 @@ class World:
         self.bounds = np.array([-1.0, 1.0])  # x and y bounds
 
         # Thresholds
-        self.delivery_threshold = 0.05    # Distance to complete delivery
+        self.delivery_threshold = 0.005    # Distance to complete delivery (10x reduced)
         self.recovery_threshold = 0.1     # Distance for drone recovery
 
     @property

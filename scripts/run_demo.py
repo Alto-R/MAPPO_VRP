@@ -448,7 +448,7 @@ def main():
     # GraphHopper distance calculation parameters
     parser.add_argument('--use_graphhopper', action='store_true', default=False,
                         help="Use GraphHopper for truck road distance calculation (default: False, use L2)")
-    parser.add_argument('--graphhopper_url', type=str, default='http://localhost:8990',
+    parser.add_argument('--graphhopper_url', type=str, default='http://localhost:8995',
                         help="GraphHopper service URL")
     parser.add_argument('--geo_bounds', type=str, default=None,
                         help="Geographic bounds for coordinate conversion: 'min_lon,max_lon,min_lat,max_lat'")
