@@ -1,47 +1,143 @@
 """
-Basic Truck-Drone VRP Scenario for MVP.
+Shenzhen Real-World Delivery Scenario.
 
-1 Truck + 2-3 Drones + 3-5 Customers
-Continuous 2D space, discrete time steps
+Uses real POI data from GeoJSON and OSM road network via GraphHopper.
+- Depot: Express delivery point (configurable)
+- Customers: Residential points within 5km radius
+- Truck routes: OSM road network within 10km radius
 """
 
 import numpy as np
+import os
 from mappo.envs.vrp.core import World, Truck, Drone, Customer
 from mappo.envs.vrp.distance_utils import drone_distance
+from mappo.envs.vrp.geo_data_loader import GeoDataLoader, CoordinateConverter
 
 
 class Scenario:
     """
-    Basic truck-drone delivery scenario.
+    Shenzhen real-world delivery scenario.
+
+    Uses actual geographic data:
+    - Express points as depot options
+    - Residential points as customers
+    - OSM road network for truck routing
     """
 
     def __init__(self):
-        # Reward parameters - minimize time objective
-        self.time_penalty = 0.1           # Cost per time step (encourages speed)
-        self.delivery_bonus = 5.0         # Reward per delivery
-        self.completion_bonus = 100.0     # Big bonus for completing all deliveries
-        self.incomplete_penalty = 20.0    # Penalty per unserved customer at end
-        self.energy_cost = 0.01           # Small energy cost
-        self.forced_return_penalty = 0.5  # Penalty for forced return
+        # Reward parameters (same as basic scenario)
+        self.time_penalty = 0.1
+        self.delivery_bonus = 5.0
+        self.completion_bonus = 100.0
+        self.incomplete_penalty = 20.0
+        self.energy_cost = 0.01
+        self.forced_return_penalty = 0.5
+
+        # Geographic data (lazy loaded)
+        self._geo_loader = None
+        self._coord_converter = None
+        self._depot_geo = None
+        self._customers_geo = None
+        self._road_nodes_geo = None
+        self._geo_bounds = None
+
+    def _init_geo_data(self, args):
+        """Initialize geographic data loader and generate data."""
+        if self._geo_loader is not None:
+            return
+
+        # Get configuration
+        geojson_path = getattr(args, 'geojson_path',
+            'data/poi_batch_1_final_[7480]_combined_5.0km.geojson')
+        graphhopper_url = getattr(args, 'graphhopper_url', 'http://localhost:8989')
+        depot_index = getattr(args, 'depot_index', 3)  # Default: 顺丰速运(福田)
+        customer_radius_km = getattr(args, 'customer_radius_km', 5.0)
+        road_radius_km = getattr(args, 'road_radius_km', 10.0)
+
+        # Resolve relative path
+        if not os.path.isabs(geojson_path):
+            # Try relative to project root
+            project_root = os.path.dirname(os.path.dirname(os.path.dirname(
+                os.path.dirname(os.path.abspath(__file__)))))
+            geojson_path = os.path.join(project_root, geojson_path)
+
+        print(f"[ShenzhenScenario] Loading geographic data from: {geojson_path}")
+
+        # Initialize loader
+        self._geo_loader = GeoDataLoader(
+            geojson_path=geojson_path,
+            graphhopper_url=graphhopper_url
+        )
+
+        # Get depot
+        express_points = self._geo_loader.get_express_points()
+        if depot_index >= len(express_points):
+            print(f"[Warning] depot_index {depot_index} out of range, using 0")
+            depot_index = 0
+
+        depot = express_points[depot_index]
+        print(f"[ShenzhenScenario] Depot: {depot['name']} @ ({depot['lon']:.5f}, {depot['lat']:.5f})")
+
+        # Snap depot to road
+        depot_snapped = self._geo_loader.snap_to_road(depot['lon'], depot['lat'])
+        self._depot_geo = depot_snapped
+        print(f"[ShenzhenScenario] Depot snapped to road: ({depot_snapped[0]:.5f}, {depot_snapped[1]:.5f})")
+
+        # Get customers in radius
+        self._customers_geo = self._geo_loader.get_customers_in_radius(
+            depot['lon'], depot['lat'], customer_radius_km
+        )
+        print(f"[ShenzhenScenario] Found {len(self._customers_geo)} customers within {customer_radius_km}km")
+
+        # Generate road network nodes
+        self._road_nodes_geo = self._geo_loader.generate_road_network_nodes(
+            depot['lon'], depot['lat'],
+            radius_km=road_radius_km,
+            num_directions=8,
+            points_per_direction=5
+        )
+        print(f"[ShenzhenScenario] Generated {len(self._road_nodes_geo)} road nodes")
+
+        # Compute geographic bounds
+        self._geo_bounds = self._geo_loader.compute_geo_bounds(
+            depot['lon'], depot['lat'],
+            self._road_nodes_geo,
+            self._customers_geo
+        )
+        print(f"[ShenzhenScenario] Geo bounds: lon=[{self._geo_bounds[0]:.5f}, {self._geo_bounds[1]:.5f}], "
+              f"lat=[{self._geo_bounds[2]:.5f}, {self._geo_bounds[3]:.5f}]")
+
+        # Initialize coordinate converter
+        self._coord_converter = CoordinateConverter(self._geo_bounds)
 
     def make_world(self, args):
         """
-        Create and return the world.
+        Create and return the world with real geographic data.
 
         Args:
-            args: Namespace with num_drones, num_customers, num_route_nodes, episode_length
+            args: Namespace with configuration including:
+                - geojson_path: Path to POI GeoJSON file
+                - depot_index: Index of express point to use as depot
+                - customer_radius_km: Radius for customer selection
+                - road_radius_km: Radius for road network generation
+                - num_drones: Number of drones
+                - num_customers: Number of customers to use (randomly selected)
+                - episode_length: Max episode steps
         """
+        # Initialize geographic data
+        self._init_geo_data(args)
+
         world = World()
         world.world_length = getattr(args, 'episode_length', 200)
 
         # Get configuration
         num_drones = getattr(args, 'num_drones', 2)
-        num_customers = getattr(args, 'num_customers', 3)
-        num_route_nodes = getattr(args, 'num_route_nodes', 5)
+        num_customers = getattr(args, 'num_customers', 10)
 
-        # Thresholds from args
-        world.delivery_threshold = getattr(args, 'delivery_threshold', 0.05)
-        world.recovery_threshold = getattr(args, 'recovery_threshold', 0.1)
+        # Thresholds - adjusted for real-world scale
+        # In normalized [-1, 1] space, 0.05 is about 2.5% of the area
+        world.delivery_threshold = getattr(args, 'delivery_threshold', 0.03)
+        world.recovery_threshold = getattr(args, 'recovery_threshold', 0.05)
 
         # Create truck
         world.truck = Truck()
@@ -53,44 +149,59 @@ class Scenario:
             drone = Drone()
             drone.name = f'drone_{i}'
             drone.state.status = 'onboard'
+            # Adjust battery consumption for real-world scale
+            drone.battery_consumption_rate = 0.005
             world.drones.append(drone)
 
-        # Create customers
+        # Create customers from geographic data
         world.customers = []
-        for i in range(num_customers):
+
+        # Select customers (random sample if more available than needed)
+        available_customers = self._customers_geo
+        if len(available_customers) > num_customers:
+            indices = np.random.choice(len(available_customers), num_customers, replace=False)
+            selected_customers = [available_customers[i] for i in indices]
+        else:
+            selected_customers = available_customers[:num_customers]
+
+        for i, cust_geo in enumerate(selected_customers):
             customer = Customer()
             customer.name = f'customer_{i}'
+            # Store geographic info for reference
+            customer.geo_info = {
+                'name': cust_geo['name'],
+                'lon': cust_geo['lon'],
+                'lat': cust_geo['lat'],
+                'distance_km': cust_geo.get('distance_km', 0)
+            }
             world.customers.append(customer)
 
-        # Generate route nodes for truck (fixed positions)
-        world.route_nodes = self._generate_route_nodes(num_route_nodes)
+        # Convert road nodes to environment coordinates
+        world.route_nodes = []
+        for node_geo in self._road_nodes_geo:
+            env_pos = self._coord_converter.geo_to_env(node_geo[0], node_geo[1])
+            world.route_nodes.append(env_pos)
+
+        # Store geographic metadata in world for reference
+        world.geo_bounds = self._geo_bounds
+        world.depot_geo = self._depot_geo
+        world.coord_converter = self._coord_converter
 
         # Initialize world
         self.reset_world(world)
 
         return world
 
-    def _generate_route_nodes(self, num_nodes):
-        """
-        Generate fixed route nodes for truck movement.
-        Creates a circular pattern for MVP.
-        """
-        nodes = []
-        for i in range(num_nodes):
-            angle = 2 * np.pi * i / num_nodes
-            radius = 0.6
-            x = radius * np.cos(angle)
-            y = radius * np.sin(angle)
-            nodes.append(np.array([x, y]))
-        return nodes
-
     def reset_world(self, world):
         """Reset world to initial state."""
-        # Reset truck
-        world.truck.state.p_pos = np.array([0.0, 0.0])
+        # Reset truck to depot position
+        depot_env = world.coord_converter.geo_to_env(
+            world.depot_geo[0], world.depot_geo[1]
+        )
+        world.truck.state.p_pos = depot_env.copy()
         world.truck.state.p_vel = np.zeros(world.dim_p)
         world.truck.state.current_node = 0
-        world.truck.state.target_node = None  # Persistent target node
+        world.truck.state.target_node = None
         world.truck.action.release_drone = None
         world.truck.action.recover_drone = None
         world.truck.distance_traveled_this_step = 0.0
@@ -109,10 +220,11 @@ class Scenario:
             drone.battery_used_this_step = 0.0
             drone.forced_return_this_step = False
 
-        # Reset customers with random positions and time windows
+        # Reset customers with their geographic positions
         for i, customer in enumerate(world.customers):
-            # Random positions within bounds
-            customer.state.p_pos = np.random.uniform(-0.8, 0.8, world.dim_p)
+            geo_info = customer.geo_info
+            env_pos = world.coord_converter.geo_to_env(geo_info['lon'], geo_info['lat'])
+            customer.state.p_pos = env_pos
             customer.state.served = False
             customer.state.demand = np.random.uniform(0.5, 1.0)
 
@@ -124,21 +236,16 @@ class Scenario:
             customer.state.arrival_step = None
             customer.just_served_this_step = False
 
-            # Update color based on served status
+            # Color
             customer.color = np.array([0.75, 0.25, 0.25])  # Red
 
         world.world_step = 0
 
     def observation(self, agent, world):
-        """
-        Generate observation for an agent.
-
-        Returns:
-            np.ndarray of observation features
-        """
+        """Generate observation for an agent."""
         obs = []
 
-        # Self state (common for all agents)
+        # Self state
         obs.extend(agent.state.p_pos)  # 2
         obs.extend(agent.state.p_vel)  # 2
 
@@ -147,7 +254,7 @@ class Scenario:
             obs.append(agent.state.battery)  # 1
             obs.append(1.0 if agent.state.carrying_package is not None else 0.0)  # 1
 
-            # Target position (or zeros if none)
+            # Target position
             if agent.state.target_pos is not None:
                 obs.extend(agent.state.target_pos)  # 2
             else:
@@ -160,7 +267,7 @@ class Scenario:
             rel_truck = world.truck.state.p_pos - agent.state.p_pos
             obs.extend(rel_truck)  # 2
 
-            # Customer states (relative position)
+            # Customer states
             for customer in world.customers:
                 rel_pos = customer.state.p_pos - agent.state.p_pos
                 obs.extend(rel_pos)  # 2
@@ -168,7 +275,7 @@ class Scenario:
                 obs.append(self._time_window_remaining(customer, world))  # 1
                 obs.append(customer.state.demand)  # 1
 
-            # Other drones states
+            # Other drones
             for other in world.drones:
                 if other is agent:
                     continue
@@ -225,96 +332,72 @@ class Scenario:
         return status_map.get(status, 0.0)
 
     def get_share_obs(self, world):
-        """
-        Generate shared observation (global state) for centralized critic.
-        All agents receive the same share_obs.
-
-        Returns:
-            np.ndarray of global state features
-        """
+        """Generate shared observation (global state) for centralized critic."""
         share_obs = []
 
-        # 1. Truck state (absolute coordinates)
+        # Truck state (absolute)
         share_obs.extend(world.truck.state.p_pos)  # 2
         share_obs.extend(world.truck.state.p_vel)  # 2
 
-        # 2. All drone states (absolute coordinates)
+        # Drone states (absolute)
         for drone in world.drones:
-            share_obs.extend(drone.state.p_pos)    # 2
-            share_obs.extend(drone.state.p_vel)    # 2
+            share_obs.extend(drone.state.p_pos)  # 2
+            share_obs.extend(drone.state.p_vel)  # 2
             share_obs.append(drone.state.battery)  # 1
             share_obs.append(1.0 if drone.state.carrying_package is not None else 0.0)  # 1
             share_obs.append(self._encode_drone_status(drone.state.status))  # 1
 
-        # 3. All customer states (absolute coordinates)
+        # Customer states (absolute)
         for customer in world.customers:
             share_obs.extend(customer.state.p_pos)  # 2
             share_obs.append(1.0 if customer.state.served else 0.0)  # 1
             share_obs.append(self._time_window_remaining(customer, world))  # 1
             share_obs.append(customer.state.demand)  # 1
 
-        # 4. Normalized time step
+        # Normalized time step
         share_obs.append(world.world_step / world.world_length)  # 1
 
         return np.array(share_obs, dtype=np.float32)
 
     def compute_share_obs_dim(self, world):
         """Compute the dimension of shared observation."""
-        # 4 (truck) + num_drones * 7 + num_customers * 5 + 1 (time)
         return 4 + len(world.drones) * 7 + len(world.customers) * 5 + 1
 
     def get_available_actions(self, agent, world):
-        """
-        Return available actions mask (1=available, 0=unavailable).
-
-        Args:
-            agent: The agent (Truck or Drone)
-            world: The world state
-
-        Returns:
-            np.ndarray mask
-        """
+        """Return available actions mask."""
         if isinstance(agent, Drone):
-            # Drone action space: [HOVER, RETURN, DELIVER_0, DELIVER_1, ...]
             mask = np.ones(2 + len(world.customers))
 
             if agent.state.status == 'onboard':
-                # On truck: can only HOVER (wait to be released)
-                mask[1:] = 0  # Disable RETURN and all DELIVER
+                mask[1:] = 0  # Only HOVER
             elif agent.state.status == 'crashed':
-                # Crashed: no actions available
                 mask[:] = 0
-                mask[0] = 1  # Can only hover (do nothing)
+                mask[0] = 1  # Only HOVER
             else:
-                # Flying
-                # Disable already-served customers
+                # Disable served customers
                 for i, c in enumerate(world.customers):
                     if c.state.served:
                         mask[2 + i] = 0
 
-                # If carrying package, must deliver to target customer before returning
+                # If carrying, must deliver to target
                 if agent.state.carrying_package is not None:
-                    # Disable RETURN action - must complete delivery first
-                    mask[1] = 0
-                    # Disable other customers - can only deliver to target
+                    mask[1] = 0  # No return
                     for i in range(len(world.customers)):
                         if i != agent.state.carrying_package:
                             mask[2 + i] = 0
 
         else:  # Truck
-            # Truck action space: [STAY, MOVE_0..N, RELEASE_0..D, RECOVER_0..D]
             num_nodes = len(world.route_nodes)
             num_drones = len(world.drones)
             mask = np.ones(1 + num_nodes + 2 * num_drones)
 
-            # RELEASE: only available for onboard drones
+            # RELEASE: only for onboard drones
             for i, d in enumerate(world.drones):
                 if d.state.status != 'onboard':
                     mask[1 + num_nodes + i] = 0
 
-            # RECOVER: only available for nearby drones that are not onboard
+            # RECOVER: only for nearby non-onboard drones
             for i, d in enumerate(world.drones):
-                # Drone distance (L2) for recovery check
                 dist = drone_distance(d.state.p_pos, agent.state.p_pos)
                 if dist > world.recovery_threshold or d.state.status == 'onboard':
                     mask[1 + num_nodes + num_drones + i] = 0
@@ -322,64 +405,43 @@ class Scenario:
         return mask
 
     def is_terminal(self, world):
-        """
-        Check if episode should terminate.
-
-        Returns:
-            bool: True if episode is done
-        """
-        # Done if max steps reached
+        """Check if episode should terminate."""
         if world.world_step >= world.world_length:
             return True
-
-        # Done if all customers served
         if all(c.state.served for c in world.customers):
             return True
-
-        # Done if all drones crashed
         if all(d.state.status == 'crashed' for d in world.drones):
             return True
-
         return False
 
     def compute_global_reward(self, world):
-        """
-        Compute global reward for cooperative scenario.
-        Objective: minimize time to complete all deliveries.
-        Called ONCE per step, all agents receive the same reward.
-
-        Returns:
-            float: The global reward
-        """
+        """Compute global reward for cooperative scenario."""
         rew = 0.0
 
-        # 1. Time penalty - encourages faster completion
+        # Time penalty
         rew -= self.time_penalty
 
-        # 2. Delivery rewards this step
+        # Delivery rewards
         for c in world.customers:
             if c.just_served_this_step:
                 rew += self.delivery_bonus
 
-        # 3. Energy consumption (small)
+        # Energy cost
         for d in world.drones:
             rew -= self.energy_cost * d.battery_used_this_step
 
-        # 4. Forced return penalty
+        # Forced return penalty
         for d in world.drones:
             if d.forced_return_this_step:
                 rew -= self.forced_return_penalty
 
-        # 5. Terminal reward
+        # Terminal reward
         if self.is_terminal(world):
             served = sum(1 for c in world.customers if c.state.served)
             total = len(world.customers)
             if served == total:
-                # Big bonus for completing all deliveries
-                # Earlier completion = fewer time penalties accumulated = higher total reward
                 rew += self.completion_bonus
             else:
-                # Penalty for incomplete deliveries
                 rew -= self.incomplete_penalty * (total - served)
 
         return rew

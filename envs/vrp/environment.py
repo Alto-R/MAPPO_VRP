@@ -7,6 +7,7 @@ import gymnasium as gym
 from gymnasium import spaces
 import numpy as np
 from mappo.envs.vrp.core import Truck, Drone
+from mappo.envs.vrp.distance_utils import DistanceCalculator, drone_distance
 
 
 class MultiAgentVRPEnv(gym.Env):
@@ -21,7 +22,10 @@ class MultiAgentVRPEnv(gym.Env):
     def __init__(self, world, reset_callback=None, reward_callback=None,
                  observation_callback=None, info_callback=None,
                  done_callback=None, available_actions_callback=None,
-                 share_obs_callback=None, discrete_action=True):
+                 share_obs_callback=None, discrete_action=True,
+                 use_graphhopper: bool = True,
+                 graphhopper_url: str = "http://localhost:8989",
+                 geo_bounds: tuple = None):
         """
         Initialize the environment.
 
@@ -35,6 +39,9 @@ class MultiAgentVRPEnv(gym.Env):
             available_actions_callback: Function to get action mask
             share_obs_callback: Function to get shared observation
             discrete_action: Whether to use discrete action space
+            use_graphhopper: Whether to use GraphHopper for truck distance calculation
+            graphhopper_url: GraphHopper service URL
+            geo_bounds: Geographic bounds (min_lon, max_lon, min_lat, max_lat) for coordinate conversion
         """
         self.world = world
         self.world_length = world.world_length
@@ -56,6 +63,16 @@ class MultiAgentVRPEnv(gym.Env):
         # Settings
         self.discrete_action_space = discrete_action
         self.shared_reward = True  # Cooperative scenario
+
+        # Initialize distance calculator
+        # Truck uses GraphHopper for road network distance, drone uses L2 norm
+        coord_bounds = (world.bounds[0], world.bounds[1], world.bounds[0], world.bounds[1])
+        self.distance_calculator = DistanceCalculator(
+            use_graphhopper=use_graphhopper,
+            graphhopper_url=graphhopper_url,
+            coord_bounds=coord_bounds,
+            geo_bounds=geo_bounds
+        )
 
         # Configure spaces
         self.action_space = []
@@ -281,8 +298,9 @@ class MultiAgentVRPEnv(gym.Env):
                 continue
 
             # Calculate battery needed to return to truck (current position)
-            dist_to_truck = np.linalg.norm(
-                drone.state.p_pos - self.world.truck.state.p_pos
+            # Drone uses L2 (straight-line) distance
+            dist_to_truck = drone_distance(
+                drone.state.p_pos, self.world.truck.state.p_pos
             )
             battery_needed = dist_to_truck * drone.battery_consumption_rate * 1.2  # 20% safety margin
 
@@ -312,7 +330,8 @@ class MultiAgentVRPEnv(gym.Env):
             drone_idx = truck.action.recover_drone
             if 0 <= drone_idx < len(self.world.drones):
                 drone = self.world.drones[drone_idx]
-                dist = np.linalg.norm(drone.state.p_pos - truck.state.p_pos)
+                # Drone distance (L2) for recovery check
+                dist = drone_distance(drone.state.p_pos, truck.state.p_pos)
                 if dist <= self.world.recovery_threshold and drone.state.status != 'onboard':
                     drone.state.status = 'onboard'
                     drone.state.p_pos = truck.state.p_pos.copy()
@@ -360,9 +379,9 @@ class MultiAgentVRPEnv(gym.Env):
                 drone.state.p_vel = np.zeros(self.world.dim_p)
                 continue
 
-            # Calculate movement
+            # Calculate movement (drone uses L2 distance)
             direction = target - drone.state.p_pos
-            distance = np.linalg.norm(direction)
+            distance = drone_distance(drone.state.p_pos, target)
 
             if distance > 1e-6:
                 direction = direction / distance
@@ -387,8 +406,9 @@ class MultiAgentVRPEnv(gym.Env):
 
             # Check for recovery arrival
             if drone.action.return_to_truck:
-                dist_to_truck = np.linalg.norm(
-                    drone.state.p_pos - self.world.truck.state.p_pos
+                # Drone distance (L2) for recovery check
+                dist_to_truck = drone_distance(
+                    drone.state.p_pos, self.world.truck.state.p_pos
                 )
                 if dist_to_truck < self.world.recovery_threshold:
                     # Auto-recover when arriving at truck
@@ -401,7 +421,11 @@ class MultiAgentVRPEnv(gym.Env):
                     drone.state.battery = min(1.0, drone.state.battery + 0.2)
 
     def _update_truck_state(self):
-        """Update truck position. Uses persistent target_node."""
+        """Update truck position. Uses persistent target_node.
+
+        Movement simulation uses L2 distance (simplified physics).
+        Road distance (via GraphHopper) is used for distance_traveled calculation.
+        """
         truck = self.world.truck
 
         # No target - stay in place
@@ -411,24 +435,34 @@ class MultiAgentVRPEnv(gym.Env):
 
         # Get target position from target_node
         target = self.world.route_nodes[truck.state.target_node]
+
+        # Use L2 for movement direction (simplified physics)
         direction = target - truck.state.p_pos
-        distance = np.linalg.norm(direction)
+        l2_distance = np.linalg.norm(direction)
 
-        if distance > 1e-6:
-            direction = direction / distance
-            step_size = min(truck.max_speed * self.world.dt, distance)
+        if l2_distance > 1e-6:
+            direction = direction / l2_distance
+            step_size = min(truck.max_speed * self.world.dt, l2_distance)
 
-            # Update position
+            # Record start position for road distance calculation
+            start_pos = truck.state.p_pos.copy()
+
+            # Update position (L2 movement)
             truck.state.p_pos += direction * step_size
             truck.state.p_vel = direction * (step_size / self.world.dt)
-            truck.distance_traveled_this_step = step_size
+
+            # Calculate road distance traveled (using GraphHopper if available)
+            # Scale by the proportion of L2 distance covered this step
+            road_distance_to_target = self.distance_calculator.truck_distance(start_pos, target)
+            proportion_traveled = step_size / l2_distance
+            truck.distance_traveled_this_step = road_distance_to_target * proportion_traveled
 
             # Update onboard drones' positions
             for drone in self.world.drones:
                 if drone.state.status == 'onboard':
                     drone.state.p_pos = truck.state.p_pos.copy()
 
-            # Check if arrived at target node
+            # Check if arrived at target node (using L2 for position check)
             new_distance = np.linalg.norm(target - truck.state.p_pos)
             if new_distance < 1e-6:
                 # Arrived at target node
@@ -455,7 +489,8 @@ class MultiAgentVRPEnv(gym.Env):
             if customer.state.served:
                 continue
 
-            dist = np.linalg.norm(drone.state.p_pos - customer.state.p_pos)
+            # Drone distance (L2) for delivery check
+            dist = drone_distance(drone.state.p_pos, customer.state.p_pos)
             if dist < self.world.delivery_threshold:
                 # Complete delivery
                 customer.state.served = True

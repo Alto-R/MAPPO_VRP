@@ -20,6 +20,9 @@ def VRPEnv(args):
             - episode_length: Max episode steps
             - delivery_threshold: Distance threshold for delivery
             - recovery_threshold: Distance threshold for drone recovery
+            - use_graphhopper: Whether to use GraphHopper for truck distance (default: True)
+            - graphhopper_url: GraphHopper service URL (default: http://localhost:8989)
+            - geo_bounds: Geographic bounds for coordinate conversion (min_lon, max_lon, min_lat, max_lat)
 
     Returns:
         MultiAgentVRPEnv instance
@@ -31,6 +34,21 @@ def VRPEnv(args):
     # Create world
     world = scenario.make_world(args)
 
+    # GraphHopper settings
+    use_graphhopper = getattr(args, 'use_graphhopper', False)
+    graphhopper_url = getattr(args, 'graphhopper_url', 'http://localhost:8989')
+
+    # Parse geo_bounds from string format "min_lon,max_lon,min_lat,max_lat"
+    geo_bounds_str = getattr(args, 'geo_bounds', None)
+    geo_bounds = None
+    if geo_bounds_str:
+        try:
+            bounds = [float(x.strip()) for x in geo_bounds_str.split(',')]
+            if len(bounds) == 4:
+                geo_bounds = tuple(bounds)
+        except ValueError:
+            print(f"[Warning] Invalid geo_bounds format: {geo_bounds_str}, using default")
+
     # Create environment with callbacks
     env = MultiAgentVRPEnv(
         world,
@@ -41,7 +59,10 @@ def VRPEnv(args):
         done_callback=scenario.is_terminal,
         available_actions_callback=scenario.get_available_actions,
         share_obs_callback=scenario.get_share_obs,
-        discrete_action=True
+        discrete_action=True,
+        use_graphhopper=use_graphhopper,
+        graphhopper_url=graphhopper_url,
+        geo_bounds=geo_bounds
     )
 
     return env
