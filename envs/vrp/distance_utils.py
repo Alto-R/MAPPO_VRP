@@ -56,7 +56,7 @@ class DistanceCalculator:
     def _init_graphhopper(self):
         """Initialize GraphHopper client. Raises error if service not available."""
         try:
-            from tools.graphhopper.gh_client import GraphHopperClient
+            from mappo.tools.graphhopper.gh_client import GraphHopperClient
             self.gh_client = GraphHopperClient(base_url=self.graphhopper_url)
             self.gh_available = self.gh_client.is_available()
             if self.gh_available:
@@ -69,7 +69,7 @@ class DistanceCalculator:
         except ImportError:
             raise ImportError(
                 "[DistanceCalculator] GraphHopper client not found. "
-                "Please ensure tools/graphhopper/gh_client.py exists."
+                "Please ensure mappo/tools/graphhopper/gh_client.py exists."
             )
         except ConnectionError:
             raise  # Re-raise ConnectionError

@@ -83,7 +83,7 @@ class GeoDataLoader:
     def _get_gh_client(self):
         """Get or create GraphHopper client."""
         if self._gh_client is None:
-            from tools.graphhopper.gh_client import GraphHopperClient
+            from mappo.tools.graphhopper.gh_client import GraphHopperClient
             self._gh_client = GraphHopperClient(base_url=self.graphhopper_url)
             if not self._gh_client.is_available():
                 raise ConnectionError(

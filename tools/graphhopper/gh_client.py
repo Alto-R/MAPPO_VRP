@@ -4,7 +4,7 @@ GraphHopper API 客户端 - 用于 MAPPO VRP 项目
 提供与 GraphHopper 路由服务的接口，获取真实路网的路径规划结果。
 
 Usage:
-    from tools.graphhopper.gh_client import GraphHopperClient
+    from mappo.tools.graphhopper.gh_client import GraphHopperClient
 
     client = GraphHopperClient()
     route = client.route(

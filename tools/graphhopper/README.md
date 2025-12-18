@@ -40,7 +40,7 @@ start_graphhopper.bat import
 ### 基本路由查询
 
 ```python
-from tools.graphhopper.gh_client import GraphHopperClient
+from mappo.tools.graphhopper.gh_client import GraphHopperClient
 
 # 创建客户端
 client = GraphHopperClient("http://localhost:8989")

@@ -74,7 +74,7 @@ VRP 环境模拟**卡车-无人机协同配送**场景：
 本项目已包含完整的 MAPPO 算法实现，无需外部依赖。安装基础依赖：
 
 ```bash
-pip install torch numpy wandb setproctitle tensorboardX gym
+pip install torch numpy setproctitle tensorboardX gymnasium
 ```
 
 ### 训练
